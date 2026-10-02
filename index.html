@@ -118,6 +118,11 @@
           <label class="field"><span>Hora do prazo (opcional)</span><input type="time" name="dueTime"></label>
         </div>
         <label class="field"><span>Projeto</span><select name="projectId"></select></label>
+        <div class="field checklist-field">
+          <span>Itens (opcional) <span class="checklist-tools"><span id="itemsProgress"></span><button type="button" class="link-btn" id="uncheckAllBtn" hidden>Desmarcar todos</button></span></span>
+          <ul class="checklist-edit" id="checklistEdit"></ul>
+          <input id="newItemInput" maxlength="300" autocomplete="off" placeholder="Adicionar item e apertar Enter (ou colar uma lista)" aria-label="Novo item">
+        </div>
         <label class="field"><span>Observações</span><textarea name="notes" rows="3" maxlength="5000"></textarea></label>
         <label class="check"><input type="checkbox" name="done"> Concluída</label>
         <p class="form-error" id="taskError" role="alert" hidden></p>

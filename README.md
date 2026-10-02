@@ -14,6 +14,10 @@ Funciona direto no navegador, sem instalar nada e sem login.
 - **Tarefas**: prioridade Alta/Média/Baixa, prazo opcional (com hora, se quiser) e projeto.
   A ordem é automática: atrasadas primeiro, depois as de maior prioridade e prazo mais próximo.
   Uma tarefa atrasada fica em vermelho até você concluir ou adiar para o próximo dia útil.
+- **Lista de itens nas tarefas** (ex.: lista de compras): digite cada item e aperte Enter, ou cole
+  uma lista inteira (cada linha vira um item). Na lista de tarefas, clique na seta para expandir
+  e marcar os itens ali mesmo. Ao marcar o último, a tarefa é concluída (dá para desfazer).
+  O botão **Desmarcar todos** permite reaproveitar a lista.
 - **Lembretes**: notificação do sistema e aviso dentro da agenda. Funcionam enquanto a agenda
   estiver aberta em alguma aba do navegador (pode ficar em segundo plano).
 - **Projetos**: cores para separar clientes ou frentes de trabalho, com filtro no topo.

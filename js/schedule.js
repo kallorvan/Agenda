@@ -66,6 +66,20 @@ const Schedule = (() => {
     });
   }
 
+  // Progresso da lista de itens de uma tarefa: { done, total }.
+  function itemProgress(task) {
+    const items = Array.isArray(task.items) ? task.items : [];
+    return { done: items.filter((i) => i.done).length, total: items.length };
+  }
+
+  // Divide um texto colado em itens: uma linha por item, sem marcadores de lista.
+  function parseItems(text) {
+    return String(text || '')
+      .split(/\r?\n/)
+      .map((line) => line.replace(/^\s*(?:[-*•–]|\[[ xX]?\]|\d+[.)](?=\s))\s*/, '').trim())
+      .filter(Boolean);
+  }
+
   // Distribui compromissos sobrepostos em colunas lado a lado.
   // Retorna [{ occ, col, cols }].
   function layout(occs, minDuration = 20) {
@@ -105,7 +119,7 @@ const Schedule = (() => {
     return out.map(({ occ, col, cols }) => ({ occ, col, cols }));
   }
 
-  return { occursOn, occurrencesBetween, taskStatus, sortTasks, layout };
+  return { occursOn, occurrencesBetween, taskStatus, sortTasks, itemProgress, parseItems, layout };
 })();
 
 if (typeof module !== 'undefined') module.exports = Schedule;

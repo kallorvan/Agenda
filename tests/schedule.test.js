@@ -65,3 +65,17 @@ test('semana começa na segunda', () => {
   assert.equal(U.weekStart('2026-10-04'), '2026-09-28'); // domingo
   assert.equal(U.weekStart('2026-10-05'), '2026-10-05'); // segunda
 });
+
+test('progresso da lista de itens', () => {
+  assert.deepEqual(S.itemProgress({}), { done: 0, total: 0 });
+  assert.deepEqual(S.itemProgress({ items: [{ done: true }, { done: false }, { done: true }] }), { done: 2, total: 3 });
+});
+
+test('lista colada vira itens, sem marcadores', () => {
+  const text = 'Arroz\r\n- Feijão\n\n* Café\n• Leite\n1. Pão\n2) Ovos\n[ ] Sabão\n[x] Açúcar\n   ';
+  assert.deepEqual(S.parseItems(text), ['Arroz', 'Feijão', 'Café', 'Leite', 'Pão', 'Ovos', 'Sabão', 'Açúcar']);
+});
+
+test('números no início do item são mantidos quando não são marcador', () => {
+  assert.deepEqual(S.parseItems('1.5 kg de arroz\n2 pacotes de café'), ['1.5 kg de arroz', '2 pacotes de café']);
+});

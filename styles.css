@@ -423,3 +423,28 @@ legend { font-size: 12.5px; font-weight: 500; color: var(--muted); padding: 0; m
 .toast.error { background: var(--danger); color: #fff; }
 @keyframes toast-in { from { transform: translateY(8px); opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .toast { animation: none; } }
+
+/* ---------- Lista de itens das tarefas ---------- */
+.task { flex-wrap: wrap; position: relative; }
+.task .expand { flex: none; margin: 0 -4px 0 -6px; transition: transform .15s; font-size: 18px; }
+.task .expand.open { transform: rotate(90deg); }
+.progress { display: inline-flex; align-items: center; gap: 5px; font-variant-numeric: tabular-nums; }
+.progress .bar { width: 38px; height: 5px; border-radius: 3px; background: var(--border); overflow: hidden; }
+.progress .bar i { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
+.progress.complete { color: var(--ok); }
+.progress.complete .bar i { background: var(--ok); }
+.subitems { list-style: none; margin: 2px 0 0 48px; padding: 0; flex-basis: 100%; display: flex; flex-direction: column; gap: 1px; }
+.subitems label { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 6px; cursor: pointer; }
+.subitems label:hover { background: color-mix(in srgb, var(--surface-2) 60%, var(--border)); }
+.subitems input { width: 16px; height: 16px; margin: 0; flex: none; }
+.subitems li.done span { text-decoration: line-through; color: var(--muted); }
+.chip-progress { flex: none; margin-left: auto; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+.checklist-tools { display: inline-flex; align-items: center; gap: 10px; font-weight: 400; }
+.checklist-edit { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.checklist-edit:empty { display: none; }
+.checklist-edit li { display: flex; align-items: center; gap: 8px; }
+.checklist-edit li input[type=checkbox] { width: 16px; height: 16px; flex: none; margin: 0; }
+.checklist-edit li input[data-field=text] { height: 32px; }
+.checklist-edit li.done input[data-field=text] { text-decoration: line-through; color: var(--muted); }
+.checklist-edit li input[data-field=text]:not(:focus):not(:hover) { border-color: transparent; background: var(--surface-2); }
