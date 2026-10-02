@@ -19,7 +19,7 @@
   const data = () => Store.data;
   const settings = () => Store.data.settings;
 
-  const state = { view: 'day', date: U.todayKey(), taskTab: 'day', project: '' };
+  const state = { view: 'day', date: U.todayKey(), taskTab: 'day', project: '', expanded: new Set() };
   let lastScrollKey = null;
   let lastMinute = U.nowTime();
 
@@ -238,20 +238,40 @@
     </section>`;
   }
 
+  function progressBadge(t) {
+    const { done, total } = Schedule.itemProgress(t);
+    if (!total) return '';
+    return `<span class="progress ${done === total ? 'complete' : ''}" title="${done} de ${total} itens marcados">
+      <span class="bar"><i style="width:${Math.round((done / total) * 100)}%"></i></span>${done}/${total}</span>`;
+  }
+
   function taskItem(t, now) {
     const status = Schedule.taskStatus(t, now);
     const canSnooze = status === 'overdue' || status === 'today';
+    const items = Array.isArray(t.items) ? t.items : [];
+    const open = items.length > 0 && state.expanded.has(t.id);
+    const expand = items.length
+      ? `<button type="button" class="icon-btn small expand ${open ? 'open' : ''}" data-action="expand-task" data-id="${esc(t.id)}" aria-expanded="${open}" aria-label="${open ? 'Recolher' : 'Mostrar'} itens de ${esc(t.title)}">›</button>`
+      : '';
+    const subitems = open
+      ? `<ul class="subitems">${items.map((i) => `<li class="${i.done ? 'done' : ''}"><label>
+          <input type="checkbox" data-action="toggle-item" data-id="${esc(t.id)}" data-item="${esc(i.id)}" ${i.done ? 'checked' : ''}>
+          <span>${esc(i.text)}</span></label></li>`).join('')}</ul>`
+      : '';
     return `<li class="task status-${status}">
+      ${expand}
       <input type="checkbox" class="task-check" data-action="toggle-task" data-id="${esc(t.id)}" ${t.done ? 'checked' : ''} aria-label="Concluir ${esc(t.title)}">
       <button type="button" class="task-body" data-action="open-task" data-id="${esc(t.id)}">
         <span class="task-title">${esc(t.title)}</span>
         <span class="task-meta">
           <span class="prio prio-${esc(t.priority)}">${PRIORITIES[t.priority] || 'Média'}</span>
           <span class="due">${esc(taskDueLabel(t, now))}</span>
+          ${progressBadge(t)}
           ${projectChip(t.projectId)}
         </span>
       </button>
       ${canSnooze ? `<button type="button" class="btn ghost small snooze" data-action="snooze-task" data-id="${esc(t.id)}" title="Mudar o prazo para ${esc(snoozeLabel())}">Adiar p/ ${esc(snoozeLabel())}</button>` : ''}
+      ${subitems}
     </li>`;
   }
 
@@ -346,7 +366,12 @@
   function taskChip(t, now) {
     const status = Schedule.taskStatus(t, now);
     return `<button type="button" class="task-chip status-${status} prio-${esc(t.priority)}" data-action="open-task" data-id="${esc(t.id)}" title="${esc(t.title)}">
-      <span class="box">${t.done ? '✓' : ''}</span><span class="txt">${t.dueTime ? `${t.dueTime} ` : ''}${esc(t.title)}</span></button>`;
+      <span class="box">${t.done ? '✓' : ''}</span><span class="txt">${t.dueTime ? `${t.dueTime} ` : ''}${esc(t.title)}</span>${chipProgress(t)}</button>`;
+  }
+
+  function chipProgress(t) {
+    const { done, total } = Schedule.itemProgress(t);
+    return total ? `<span class="chip-progress">${done}/${total}</span>` : '';
   }
 
   // ----- Mês -----
@@ -418,6 +443,33 @@
     }
   }
 
+  // Marca um item da lista. Marcar o último conclui a tarefa; desmarcar reabre.
+  function toggleItem(taskId, itemId, done) {
+    const task = data().tasks.find((t) => t.id === taskId);
+    if (!task || !Array.isArray(task.items)) return;
+    const before = { done: task.done, doneAt: task.doneAt };
+    const items = task.items.map((i) => (i.id === itemId ? { ...i, done } : i));
+    const allDone = items.every((i) => i.done);
+    const updated = { ...task, items };
+    if (allDone && !task.done) Object.assign(updated, { done: true, doneAt: Date.now() });
+    if (!done && task.done) Object.assign(updated, { done: false, doneAt: null });
+    saveAndRender('tasks', updated);
+    if (updated.done && !task.done) {
+      toast(`Todos os itens marcados. Tarefa concluída: ${task.title}`, {
+        action: 'Desfazer',
+        onAction: () => {
+          const current = data().tasks.find((t) => t.id === taskId);
+          if (!current) return;
+          saveAndRender('tasks', {
+            ...current,
+            ...before,
+            items: current.items.map((i) => (i.id === itemId ? { ...i, done: false } : i)),
+          });
+        },
+      });
+    }
+  }
+
   // Próximo dia de trabalho: pula o fim de semana quando ele não é exibido.
   function snoozeTarget() {
     let key = U.addDays(U.todayKey(), 1);
@@ -453,6 +505,11 @@
       case 'open-task': return openTaskDialog(id);
       case 'new-event': return openEventDialog(null, date);
       case 'toggle-task': return toggleTask(id, el.checked);
+      case 'toggle-item': return toggleItem(id, el.dataset.item, el.checked);
+      case 'expand-task':
+        if (state.expanded.has(id)) state.expanded.delete(id);
+        else state.expanded.add(id);
+        return render();
       case 'snooze-task': return snoozeTask(id);
       case 'goto-day': return goto('day', date);
       case 'task-tab': state.taskTab = el.dataset.tab; return render();
@@ -639,6 +696,83 @@
   // ----- Tarefa -----
 
   let editingTask = null;
+  let draftItems = [];
+
+  function renderDraftItems() {
+    const done = draftItems.filter((i) => i.done).length;
+    $('#checklistEdit').innerHTML = draftItems.map((i) => `<li data-item="${esc(i.id)}" class="${i.done ? 'done' : ''}">
+        <input type="checkbox" data-field="done" ${i.done ? 'checked' : ''} aria-label="Marcar item">
+        <input data-field="text" value="${esc(i.text)}" maxlength="300" aria-label="Texto do item">
+        <button type="button" class="icon-btn small" data-remove-item aria-label="Remover item">×</button>
+      </li>`).join('');
+    $('#itemsProgress').textContent = draftItems.length ? `${done}/${draftItems.length}` : '';
+    $('#uncheckAllBtn').hidden = done === 0;
+  }
+
+  // Mantém "Concluída" coerente com os itens marcados.
+  function syncDoneWithItems() {
+    const form = $('#taskForm');
+    if (!draftItems.length) return;
+    form.done.checked = draftItems.every((i) => i.done);
+  }
+
+  function addDraftItems(texts) {
+    for (const text of texts) draftItems.push({ id: U.uid(), text, done: false });
+    if (texts.length) clearDoneCheckbox();
+    renderDraftItems();
+  }
+
+  // Um item novo (não marcado) reabre a tarefa.
+  function clearDoneCheckbox() {
+    $('#taskForm').done.checked = false;
+  }
+
+  function onNewItemKey(e) {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    const input = e.target;
+    addDraftItems(Schedule.parseItems(input.value));
+    input.value = '';
+  }
+
+  function onNewItemPaste(e) {
+    const text = e.clipboardData?.getData('text') || '';
+    if (!/\r?\n/.test(text.trim())) return;
+    e.preventDefault();
+    const input = e.target;
+    addDraftItems(Schedule.parseItems(input.value + text));
+    input.value = '';
+  }
+
+  function onChecklistInput(e) {
+    const li = e.target.closest('li[data-item]');
+    const item = li && draftItems.find((i) => i.id === li.dataset.item);
+    if (!item) return;
+    if (e.target.dataset.field === 'text') item.text = e.target.value;
+    if (e.target.dataset.field === 'done') {
+      item.done = e.target.checked;
+      li.classList.toggle('done', item.done);
+      syncDoneWithItems();
+      const done = draftItems.filter((i) => i.done).length;
+      $('#itemsProgress').textContent = `${done}/${draftItems.length}`;
+      $('#uncheckAllBtn').hidden = done === 0;
+    }
+  }
+
+  function onChecklistClick(e) {
+    const btn = e.target.closest('[data-remove-item]');
+    if (!btn) return;
+    const id = btn.closest('li').dataset.item;
+    draftItems = draftItems.filter((i) => i.id !== id);
+    renderDraftItems();
+    $('#newItemInput').focus();
+  }
+
+  function uncheckAll() {
+    draftItems.forEach((i) => (i.done = false));
+    clearDoneCheckbox();
+    renderDraftItems();
+  }
 
   function openTaskDialog(id) {
     const form = $('#taskForm');
@@ -657,6 +791,9 @@
     form.notes.value = values.notes || '';
     form.done.checked = !!values.done;
     form.done.closest('label').hidden = !task;
+    draftItems = (values.items || []).map((i) => ({ ...i }));
+    $('#newItemInput').value = '';
+    renderDraftItems();
     $('#taskDeleteBtn').hidden = !task;
     showError($('#taskError'), '');
     openModal($('#taskDialog'));
@@ -670,6 +807,13 @@
     if (!title) return showError(err, 'Informe um título.');
     if (form.dueTime.value && !form.dueDate.value) return showError(err, 'Para definir a hora, informe também a data do prazo.');
 
+    // Texto digitado e não confirmado com Enter também vira item.
+    const pending = Schedule.parseItems($('#newItemInput').value);
+    if (pending.length) addDraftItems(pending);
+    const items = draftItems
+      .map((i) => ({ id: i.id, text: i.text.trim(), done: !!i.done }))
+      .filter((i) => i.text);
+
     const done = form.done.checked;
     const task = {
       ...(editingTask || { id: U.uid(), createdAt: Date.now() }),
@@ -679,6 +823,7 @@
       dueTime: form.dueTime.value || null,
       projectId: form.projectId.value || null,
       notes: form.notes.value.trim(),
+      items,
       done,
       doneAt: done ? editingTask?.doneAt || Date.now() : null,
     };
@@ -1042,6 +1187,16 @@
 
     $('#taskForm').addEventListener('submit', submitTask);
     $('#taskDeleteBtn').addEventListener('click', deleteTask);
+    $('#newItemInput').addEventListener('keydown', onNewItemKey);
+    $('#newItemInput').addEventListener('paste', onNewItemPaste);
+    $('#checklistEdit').addEventListener('input', onChecklistInput);
+    $('#checklistEdit').addEventListener('change', onChecklistInput);
+    $('#checklistEdit').addEventListener('click', onChecklistClick);
+    $('#checklistEdit').addEventListener('keydown', (e) => {
+      // Enter num item existente não envia o formulário; vai para o campo de novo item.
+      if (e.key === 'Enter' && e.target.dataset.field === 'text') { e.preventDefault(); $('#newItemInput').focus(); }
+    });
+    $('#uncheckAllBtn').addEventListener('click', uncheckAll);
 
     $('#settingsForm').addEventListener('submit', submitSettings);
     $('#projectList').addEventListener('input', onProjectListInput);
