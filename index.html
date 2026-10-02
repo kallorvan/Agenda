@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agenda</title>
+  <meta name="description" content="Agenda de trabalho com compromissos, tarefas priorizadas e lembretes.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='3' y='5' width='26' height='24' rx='5' fill='%232f6fed'/%3E%3Crect x='3' y='5' width='26' height='7' rx='3' fill='%231d4fc4'/%3E%3Cpath d='M10 19l4 4 8-9' stroke='white' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">Agenda</div>
+
+    <nav class="segmented" aria-label="Visualização">
+      <button type="button" data-view="day">Dia</button>
+      <button type="button" data-view="week">Semana</button>
+      <button type="button" data-view="month">Mês</button>
+    </nav>
+
+    <div class="date-nav">
+      <button type="button" class="icon-btn" id="prevBtn" aria-label="Anterior" title="Anterior (←)">‹</button>
+      <button type="button" class="btn" id="todayBtn" title="Ir para hoje (T)">Hoje</button>
+      <button type="button" class="icon-btn" id="nextBtn" aria-label="Próximo" title="Próximo (→)">›</button>
+      <h1 id="periodLabel"></h1>
+    </div>
+
+    <div class="topbar-actions">
+      <select id="projectFilter" aria-label="Filtrar por projeto"></select>
+      <button type="button" class="btn" id="newTaskBtn" title="Nova tarefa (N)">+ Tarefa</button>
+      <button type="button" class="btn primary" id="newEventBtn" title="Novo compromisso (C)">+ Compromisso</button>
+      <button type="button" class="icon-btn" id="settingsBtn" aria-label="Configurações" title="Configurações">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <div class="banner" id="notifyBanner" hidden>
+    <span>Ative as notificações para ser avisado antes de cada compromisso.</span>
+    <button type="button" class="btn primary small" id="enableNotifyBtn">Ativar notificações</button>
+    <button type="button" class="btn ghost small" id="dismissNotifyBtn">Agora não</button>
+  </div>
+
+  <main id="view"></main>
+
+  <div class="toasts" id="toasts" aria-live="polite"></div>
+
+  <!-- Compromisso -->
+  <dialog class="modal" id="eventDialog">
+    <form id="eventForm" novalidate>
+      <header class="modal-head">
+        <h2 id="eventDialogTitle">Novo compromisso</h2>
+        <button type="button" class="icon-btn" data-close aria-label="Fechar">×</button>
+      </header>
+      <div class="modal-body">
+        <label class="field"><span>Título</span>
+          <input name="title" maxlength="200" autocomplete="off" placeholder="Ex.: Reunião com cliente">
+        </label>
+        <div class="row row-3">
+          <label class="field"><span id="eventDateLabel">Data</span><input type="date" name="date"></label>
+          <label class="field"><span>Início</span><input type="time" name="start"></label>
+          <label class="field"><span>Fim</span><input type="time" name="end"></label>
+        </div>
+        <label class="field"><span>Local ou link da reunião <a id="eventLink" target="_blank" rel="noopener noreferrer" hidden>Abrir link ↗</a></span>
+          <input name="location" maxlength="500" autocomplete="off" placeholder="Sala 3 ou https://meet…">
+        </label>
+        <div class="row row-2">
+          <label class="field"><span>Projeto</span><select name="projectId"></select></label>
+          <label class="field"><span>Lembrete</span><select name="reminder"></select></label>
+        </div>
+        <div class="row row-2">
+          <label class="field"><span>Repetir</span>
+            <select name="repeat">
+              <option value="none">Não se repete</option>
+              <option value="daily">Todo dia</option>
+              <option value="weekly">Toda semana</option>
+              <option value="monthly">Todo mês</option>
+            </select>
+          </label>
+          <label class="field" id="untilField"><span>Repetir até (opcional)</span><input type="date" name="until"></label>
+        </div>
+        <fieldset class="weekdays" id="weekdaysField">
+          <legend>Nos dias</legend>
+          <div id="weekdaysList"></div>
+        </fieldset>
+        <p class="hint" id="seriesHint" hidden>Este compromisso se repete: as alterações valem para todas as repetições.</p>
+        <label class="field"><span>Observações</span><textarea name="notes" rows="3" maxlength="5000"></textarea></label>
+        <p class="form-error" id="eventError" role="alert" hidden></p>
+      </div>
+      <footer class="modal-foot">
+        <button type="button" class="btn danger-ghost" id="eventDeleteBtn">Excluir</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn" data-close>Cancelar</button>
+        <button type="submit" class="btn primary">Salvar</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <!-- Tarefa -->
+  <dialog class="modal" id="taskDialog">
+    <form id="taskForm" novalidate>
+      <header class="modal-head">
+        <h2 id="taskDialogTitle">Nova tarefa</h2>
+        <button type="button" class="icon-btn" data-close aria-label="Fechar">×</button>
+      </header>
+      <div class="modal-body">
+        <label class="field"><span>Título</span>
+          <input name="title" maxlength="200" autocomplete="off" placeholder="Ex.: Enviar proposta">
+        </label>
+        <fieldset class="priority-pick">
+          <legend>Prioridade</legend>
+          <label class="prio-opt prio-alta"><input type="radio" name="priority" value="alta"><span>Alta</span></label>
+          <label class="prio-opt prio-media"><input type="radio" name="priority" value="media"><span>Média</span></label>
+          <label class="prio-opt prio-baixa"><input type="radio" name="priority" value="baixa"><span>Baixa</span></label>
+        </fieldset>
+        <div class="row row-2">
+          <label class="field"><span>Prazo (opcional)</span><input type="date" name="dueDate"></label>
+          <label class="field"><span>Hora do prazo (opcional)</span><input type="time" name="dueTime"></label>
+        </div>
+        <label class="field"><span>Projeto</span><select name="projectId"></select></label>
+        <label class="field"><span>Observações</span><textarea name="notes" rows="3" maxlength="5000"></textarea></label>
+        <label class="check"><input type="checkbox" name="done"> Concluída</label>
+        <p class="form-error" id="taskError" role="alert" hidden></p>
+      </div>
+      <footer class="modal-foot">
+        <button type="button" class="btn danger-ghost" id="taskDeleteBtn">Excluir</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn" data-close>Cancelar</button>
+        <button type="submit" class="btn primary">Salvar</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <!-- Configurações -->
+  <dialog class="modal wide" id="settingsDialog">
+    <form id="settingsForm" novalidate>
+      <header class="modal-head">
+        <h2>Configurações</h2>
+        <button type="button" class="icon-btn" data-close aria-label="Fechar">×</button>
+      </header>
+      <div class="modal-body">
+        <section class="settings-section">
+          <h3>Horário de trabalho</h3>
+          <div class="row row-3">
+            <label class="field"><span>Começa às</span><select name="dayStart"></select></label>
+            <label class="field"><span>Termina às</span><select name="dayEnd"></select></label>
+            <label class="field"><span>Lembrete padrão</span><select name="defaultReminder"></select></label>
+          </div>
+          <label class="check"><input type="checkbox" name="showWeekend"> Mostrar sábado e domingo na semana</label>
+          <p class="form-error" id="settingsError" role="alert" hidden></p>
+        </section>
+
+        <section class="settings-section">
+          <h3>Projetos</h3>
+          <ul class="project-list" id="projectList"></ul>
+          <div class="project-add">
+            <input type="color" id="newProjectColor" value="#2f6fed" aria-label="Cor do projeto">
+            <input id="newProjectName" maxlength="60" placeholder="Nome do novo projeto" autocomplete="off">
+            <button type="button" class="btn" id="addProjectBtn">Adicionar</button>
+          </div>
+        </section>
+
+        <section class="settings-section">
+          <h3>Notificações</h3>
+          <p class="muted" id="notifyStatus"></p>
+          <div class="inline-actions">
+            <button type="button" class="btn" id="settingsNotifyBtn">Ativar notificações</button>
+            <button type="button" class="btn ghost" id="testNotifyBtn">Testar aviso</button>
+          </div>
+        </section>
+
+        <section class="settings-section">
+          <h3>Backup</h3>
+          <p class="muted">Seus dados ficam só neste navegador. Faça backup com frequência e guarde o arquivo em um lugar seguro. <span id="lastBackupInfo"></span></p>
+          <div class="inline-actions">
+            <button type="button" class="btn" id="exportBtn">Exportar backup</button>
+            <button type="button" class="btn" id="importBtn">Importar backup</button>
+            <input type="file" id="importFile" accept="application/json,.json" hidden>
+          </div>
+        </section>
+      </div>
+      <footer class="modal-foot">
+        <span class="muted small">Atalhos: C compromisso · N tarefa · T hoje · D/S/M visão · ← → navegar</span>
+        <span class="spacer"></span>
+        <button type="button" class="btn" data-close>Cancelar</button>
+        <button type="submit" class="btn primary">Salvar</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <!-- Escolha / confirmação -->
+  <dialog class="modal narrow" id="choiceDialog">
+    <form method="dialog">
+      <header class="modal-head"><h2 id="choiceTitle"></h2></header>
+      <div class="modal-body"><p id="choiceMessage"></p></div>
+      <footer class="modal-foot" id="choiceButtons"></footer>
+    </form>
+  </dialog>
+
+  <script src="js/utils.js"></script>
+  <script src="js/schedule.js"></script>
+  <script src="js/store.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
