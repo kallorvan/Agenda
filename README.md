@@ -61,3 +61,11 @@ HTML, CSS e JavaScript puro, sem dependências nem etapa de build.
 - `js/app.js`: interface
 
 Testes da lógica: `node --test tests/*.test.js`
+
+### Publicando uma versão nova
+
+O GitHub Pages deixa os arquivos guardados no navegador por alguns minutos. Para que todos recebam
+a versão nova na hora, **a cada atualização aumente o número da versão** em `version.json`, no
+`<meta name="app-version">` e nos `?v=` dos arquivos em `index.html` (o teste
+`tests/version.test.js` confere se estão iguais). Ao abrir, a agenda compara com `version.json` e
+recarrega sozinha se houver versão nova; se já estiver aberta, mostra o aviso **Atualizar**.

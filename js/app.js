@@ -1113,6 +1113,29 @@
     if (changed) saveNotified(notified);
   }
 
+  // ----- Versão nova publicada -----
+
+  let updateOffered = false;
+
+  // Com a agenda aberta o dia todo, avisa quando há uma versão nova (sem recarregar sozinho,
+  // para não perder algo que esteja sendo digitado).
+  async function checkForUpdate() {
+    if (updateOffered || location.protocol === 'file:') return;
+    try {
+      const res = await fetch('version.json', { cache: 'no-store' });
+      const latest = String((await res.json()).version);
+      const current = document.querySelector('meta[name="app-version"]')?.content;
+      if (!current || latest === current) return;
+      updateOffered = true;
+      toast('Uma versão nova da agenda está disponível.', {
+        title: 'Atualização',
+        sticky: true,
+        action: 'Atualizar',
+        onAction: () => location.replace(`${location.pathname}?v=${encodeURIComponent(latest)}${location.hash}`),
+      });
+    } catch (_) { /* sem internet: tenta de novo depois */ }
+  }
+
   // Atualiza a tela a cada minuto (linha do "agora", atrasos) sem atrapalhar a digitação.
   function tick() {
     checkReminders();
@@ -1225,12 +1248,15 @@
     });
 
     document.addEventListener('keydown', onKey);
-    document.addEventListener('visibilitychange', () => { if (!document.hidden) tick(); });
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) { tick(); checkForUpdate(); }
+    });
 
     render();
     updateNotifyUI();
     checkReminders();
     setInterval(tick, 20000);
+    setInterval(checkForUpdate, 30 * 60000);
   }
 
   init();
