@@ -448,3 +448,22 @@ legend { font-size: 12.5px; font-weight: 500; color: var(--muted); padding: 0; m
 .checklist-edit li input[data-field=text] { height: 32px; }
 .checklist-edit li.done input[data-field=text] { text-decoration: line-through; color: var(--muted); }
 .checklist-edit li input[data-field=text]:not(:focus):not(:hover) { border-color: transparent; background: var(--surface-2); }
+
+/* ---------- Compromissos concluídos ---------- */
+.event-block { padding-right: 26px; }
+.event-block:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; z-index: 3; }
+.ev-check {
+  position: absolute; top: 4px; right: 4px;
+  width: 18px; height: 18px; padding: 0; flex: none;
+  display: grid; place-items: center;
+  border: 1.5px solid color-mix(in srgb, var(--c, var(--accent)) 70%, var(--muted)); border-radius: 50%;
+  background: var(--surface); color: #fff; font-size: 11px; font-weight: 700; line-height: 1;
+  cursor: pointer; opacity: .75; transition: opacity .12s, background .12s;
+}
+.ev-check:hover { opacity: 1; background: color-mix(in srgb, var(--c, var(--accent)) 20%, var(--surface)); }
+.ev-check.checked { background: var(--ok); border-color: var(--ok); opacity: 1; }
+.event-block.short .ev-check { top: 50%; transform: translateY(-50%); width: 16px; height: 16px; }
+.event-block.done { opacity: .6; }
+.event-block.done .ev-title { text-decoration: line-through; }
+.side-item .ev-check { position: static; }
+.month-ev.done { opacity: .6; text-decoration: line-through; }

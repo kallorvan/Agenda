@@ -11,6 +11,9 @@ Funciona direto no navegador, sem instalar nada e sem login.
   e num dia para abri-lo.
 - **Compromissos**: título, data, horário, local ou link da reunião, projeto, observações,
   lembrete (padrão: 15 minutos antes) e repetição (diária, semanal nos dias escolhidos ou mensal).
+  Marque um compromisso como **concluído** pelo círculo no canto do bloco (ou no painel de próximos),
+  ou pela opção "Concluído" ao abri-lo. Em compromissos que se repetem, vale só para aquele dia.
+  Concluídos ficam riscados, saem de "Próximos" e não geram lembrete.
 - **Tarefas**: prioridade Alta/Média/Baixa, prazo opcional (com hora, se quiser) e projeto.
   A ordem é automática: atrasadas primeiro, depois as de maior prioridade e prazo mais próximo.
   Uma tarefa atrasada fica em vermelho até você concluir ou adiar para o próximo dia útil.
@@ -61,3 +64,11 @@ HTML, CSS e JavaScript puro, sem dependências nem etapa de build.
 - `js/app.js`: interface
 
 Testes da lógica: `node --test tests/*.test.js`
+
+### Publicando uma versão nova
+
+O GitHub Pages deixa os arquivos guardados no navegador por alguns minutos. Para que todos recebam
+a versão nova na hora, **a cada atualização aumente o número da versão** em `version.json`, no
+`<meta name="app-version">` e nos `?v=` dos arquivos em `index.html` (o teste
+`tests/version.test.js` confere se estão iguais). Ao abrir, a agenda compara com `version.json` e
+recarrega sozinha se houver versão nova; se já estiver aberta, mostra o aviso **Atualizar**.

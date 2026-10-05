@@ -141,14 +141,15 @@
       const height = Math.max(((e - s) / 60) * HOUR_PX, 18);
       const past = occ.date < today || (occ.date === today && U.toMin(occ.end) <= nowMin);
       const size = height < 36 ? 'short' : height < 60 ? 'compact' : '';
-      const classes = ['event-block', size, past ? 'past' : ''].join(' ');
-      return `<button type="button" class="${classes}" data-action="open-event" data-id="${esc(ev.id)}" data-date="${occ.date}"
+      const classes = ['event-block', size, past ? 'past' : '', occ.done ? 'done' : ''].join(' ');
+      return `<div role="button" tabindex="0" class="${classes}" data-action="open-event" data-id="${esc(ev.id)}" data-date="${occ.date}"
           style="top:${top}px;height:${height}px;left:calc(${(col / cols) * 100}% + 2px);width:calc(${100 / cols}% - 4px);--c:${esc(projectColor(ev.projectId))}"
-          title="${esc(`${occ.start}–${occ.end} ${ev.title}`)}">
+          title="${esc(`${occ.start}–${occ.end} ${ev.title}${occ.done ? ' (concluído)' : ''}`)}">
+          ${eventCheck(occ)}
           <span class="ev-title">${esc(ev.title)}</span>
           <span class="ev-time">${occ.start}–${occ.end}${ev.repeat?.type && ev.repeat.type !== 'none' ? ' ↻' : ''}</span>
           ${ev.location ? `<span class="ev-loc">${esc(ev.location)}</span>` : ''}
-        </button>`;
+        </div>`;
     });
 
     const nowLine =
@@ -157,6 +158,11 @@
         : '';
 
     return `<div class="track ${key === today ? 'is-today' : ''}" data-date="${key}" style="height:${(dayEnd - dayStart) * HOUR_PX}px">${blocks.join('')}${nowLine}</div>`;
+  }
+
+  function eventCheck(occ) {
+    const label = occ.done ? 'Desmarcar como concluído' : 'Marcar como concluído';
+    return `<button type="button" class="ev-check ${occ.done ? 'checked' : ''}" data-action="toggle-event-done" data-id="${esc(occ.event.id)}" data-date="${occ.date}" title="${label}" aria-label="${label}: ${esc(occ.event.title)}" aria-pressed="${occ.done}">${occ.done ? '✓' : ''}</button>`;
   }
 
   function outsideNote(occs) {
@@ -281,9 +287,9 @@
     const nowHM = U.nowTime(now);
     const events = filteredEvents();
 
-    const happening = Schedule.occurrencesBetween(events, today, today).filter((o) => o.start <= nowHM && o.end > nowHM);
+    const happening = Schedule.occurrencesBetween(events, today, today).filter((o) => !o.done && o.start <= nowHM && o.end > nowHM);
     const upcoming = Schedule.occurrencesBetween(events, today, U.addDays(today, 14))
-      .filter((o) => o.date > today || o.start > nowHM)
+      .filter((o) => !o.done && (o.date > today || o.start > nowHM))
       .slice(0, 6);
     const overdue = Schedule.sortTasks(filteredTasks().filter((t) => Schedule.taskStatus(t, now) === 'overdue'), now);
 
@@ -291,6 +297,7 @@
       const ev = o.event;
       const link = U.isUrl(ev.location) ? `<a class="join" href="${esc(ev.location.trim())}" target="_blank" rel="noopener noreferrer">Entrar ↗</a>` : '';
       return `<li class="side-item ${extra}" style="--c:${esc(projectColor(ev.projectId))}">
+        ${eventCheck(o)}
         <button type="button" class="side-body" data-action="open-event" data-id="${esc(ev.id)}" data-date="${o.date}">
           <span class="side-when">${U.relativeDay(o.date)} · ${o.start}–${o.end}</span>
           <span class="side-title">${esc(ev.title)}</span>
@@ -398,7 +405,7 @@
       const dayTasks = Schedule.sortTasks(tasks.filter((t) => t.dueDate === d && !t.done), now)
         .concat(tasks.filter((t) => t.dueDate === d && t.done));
       const items = [
-        ...dayOccs.map((o) => `<button type="button" class="month-ev" style="--c:${esc(projectColor(o.event.projectId))}" data-action="open-event" data-id="${esc(o.event.id)}" data-date="${d}" title="${esc(`${o.start} ${o.event.title}`)}"><b>${o.start}</b> ${esc(o.event.title)}</button>`),
+        ...dayOccs.map((o) => `<button type="button" class="month-ev ${o.done ? 'done' : ''}" style="--c:${esc(projectColor(o.event.projectId))}" data-action="open-event" data-id="${esc(o.event.id)}" data-date="${d}" title="${esc(`${o.start} ${o.event.title}`)}"><b>${o.start}</b> ${esc(o.event.title)}</button>`),
         ...dayTasks.map((t) => taskChip(t, now)),
       ];
       const max = 3;
@@ -439,6 +446,24 @@
       toast(`Tarefa concluída: ${task.title}`, {
         action: 'Desfazer',
         onAction: () => saveAndRender('tasks', { ...data().tasks.find((t) => t.id === id), ...previous }),
+      });
+    }
+  }
+
+  // Marca ou desmarca a ocorrência de um compromisso como concluída.
+  function toggleEventDone(id, date) {
+    const ev = data().events.find((x) => x.id === id);
+    if (!ev || !date) return;
+    const completed = ev.completed || [];
+    const done = !completed.includes(date);
+    saveAndRender('events', { ...ev, completed: done ? [...completed, date] : completed.filter((d) => d !== date) });
+    if (done) {
+      toast(`Compromisso concluído: ${ev.title}`, {
+        action: 'Desfazer',
+        onAction: () => {
+          const current = data().events.find((x) => x.id === id);
+          if (current) saveAndRender('events', { ...current, completed: (current.completed || []).filter((d) => d !== date) });
+        },
       });
     }
   }
@@ -505,6 +530,7 @@
       case 'open-task': return openTaskDialog(id);
       case 'new-event': return openEventDialog(null, date);
       case 'toggle-task': return toggleTask(id, el.checked);
+      case 'toggle-event-done': return toggleEventDone(id, date);
       case 'toggle-item': return toggleItem(id, el.dataset.item, el.checked);
       case 'expand-task':
         if (state.expanded.has(id)) state.expanded.delete(id);
@@ -595,6 +621,11 @@
     $('#weekdaysList').innerHTML = WEEKDAYS.map(([v, l]) =>
       `<label class="day-toggle"><input type="checkbox" name="days" value="${v}" ${days.includes(v) ? 'checked' : ''}><span>${l}</span></label>`).join('');
 
+    const occDate = ev ? (ev.repeat?.type !== 'none' && date ? date : ev.date) : null;
+    form.done.checked = !!(ev && occDate && (ev.completed || []).includes(occDate));
+    $('#eventDoneField').hidden = !ev;
+    $('#eventDoneLabel').textContent = ev && ev.repeat?.type !== 'none' && occDate
+      ? `Concluído em ${U.dayMonth(occDate)}` : 'Concluído';
     $('#eventDeleteBtn').hidden = !ev;
     $('#seriesHint').hidden = !(ev && ev.repeat?.type !== 'none');
     updateEventFormState();
@@ -655,6 +686,7 @@
         until: repeatType !== 'none' && form.until.value ? form.until.value : null,
       },
       notes: form.notes.value.trim(),
+      completed: eventCompletion(form, repeatType),
     };
     // Lembretes já disparados não devem impedir o aviso de um novo horário.
     if (editingEvent && (editingEvent.start !== ev.start || editingEvent.reminder !== ev.reminder)) {
@@ -663,6 +695,16 @@
     $('#eventDialog').close();
     saveAndRender('events', ev);
     toast(editingEvent ? 'Compromisso atualizado.' : 'Compromisso criado.');
+  }
+
+  // Datas concluídas após salvar. Sem repetição, só a própria data importa;
+  // com repetição, o checkbox vale para a ocorrência aberta.
+  function eventCompletion(form, repeatType) {
+    const checked = !!editingEvent && form.done.checked;
+    if (repeatType === 'none') return checked ? [form.date.value] : [];
+    const previous = (editingEvent?.completed || []).filter((d) => d !== editingOccurrence);
+    const occ = editingOccurrence || form.date.value;
+    return checked ? [...previous, occ] : previous;
   }
 
   async function deleteEvent() {
@@ -1084,7 +1126,7 @@
     // Compromissos de hoje e amanhã (lembretes de até 1 dia antes).
     for (const o of Schedule.occurrencesBetween(data().events, today, U.addDays(today, 1))) {
       const reminder = o.event.reminder;
-      if (reminder === null || reminder === undefined || notified.has(o.key)) continue;
+      if (o.done || reminder === null || reminder === undefined || notified.has(o.key)) continue;
       const start = U.dateTime(o.date, o.start);
       const fireAt = start.getTime() - reminder * 60000;
       if (now.getTime() >= fireAt && now.getTime() < start.getTime() + 60000) {
@@ -1111,6 +1153,29 @@
       }
     }
     if (changed) saveNotified(notified);
+  }
+
+  // ----- Versão nova publicada -----
+
+  let updateOffered = false;
+
+  // Com a agenda aberta o dia todo, avisa quando há uma versão nova (sem recarregar sozinho,
+  // para não perder algo que esteja sendo digitado).
+  async function checkForUpdate() {
+    if (updateOffered || location.protocol === 'file:') return;
+    try {
+      const res = await fetch('version.json', { cache: 'no-store' });
+      const latest = String((await res.json()).version);
+      const current = document.querySelector('meta[name="app-version"]')?.content;
+      if (!current || latest === current) return;
+      updateOffered = true;
+      toast('Uma versão nova da agenda está disponível.', {
+        title: 'Atualização',
+        sticky: true,
+        action: 'Atualizar',
+        onAction: () => location.replace(`${location.pathname}?v=${encodeURIComponent(latest)}${location.hash}`),
+      });
+    } catch (_) { /* sem internet: tenta de novo depois */ }
   }
 
   // Atualiza a tela a cada minuto (linha do "agora", atrasos) sem atrapalhar a digitação.
@@ -1159,6 +1224,12 @@
     const view = $('#view');
     view.addEventListener('click', onViewClick);
     view.addEventListener('submit', onViewSubmit);
+    view.addEventListener('keydown', (e) => {
+      if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('[role="button"]')) {
+        e.preventDefault();
+        e.target.click();
+      }
+    });
 
     // Fechar diálogos: botões "×"/Cancelar e clique fora da janela.
     $$('dialog.modal').forEach((dialog) => {
@@ -1225,12 +1296,15 @@
     });
 
     document.addEventListener('keydown', onKey);
-    document.addEventListener('visibilitychange', () => { if (!document.hidden) tick(); });
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) { tick(); checkForUpdate(); }
+    });
 
     render();
     updateNotifyUI();
     checkReminders();
     setInterval(tick, 20000);
+    setInterval(checkForUpdate, 30 * 60000);
   }
 
   init();

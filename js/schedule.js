@@ -32,7 +32,10 @@ const Schedule = (() => {
     for (let key = fromKey; key <= toKey; key = Utils.addDays(key, 1)) {
       for (const ev of events) {
         if (occursOn(ev, key)) {
-          out.push({ event: ev, date: key, start: ev.start, end: ev.end, key: `${ev.id}|${key}` });
+          out.push({
+            event: ev, date: key, start: ev.start, end: ev.end, key: `${ev.id}|${key}`,
+            done: (ev.completed || []).includes(key),
+          });
         }
       }
     }
