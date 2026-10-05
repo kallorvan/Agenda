@@ -7,7 +7,7 @@
   <meta name="description" content="Agenda de trabalho com compromissos, tarefas priorizadas e lembretes.">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='3' y='5' width='26' height='24' rx='5' fill='%232f6fed'/%3E%3Crect x='3' y='5' width='26' height='7' rx='3' fill='%231d4fc4'/%3E%3Cpath d='M10 19l4 4 8-9' stroke='white' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
   <!-- Versão publicada: manter igual a version.json e aos "?v=" abaixo (o teste confere). -->
-  <meta name="app-version" content="3">
+  <meta name="app-version" content="4">
   <script>
     // O GitHub Pages deixa os arquivos guardados no navegador por alguns minutos.
     // Ao abrir, consulta a versão publicada sem cache e, se houver uma mais nova,
@@ -34,7 +34,7 @@
         .catch(function () {});
     })();
   </script>
-  <link rel="stylesheet" href="styles.css?v=3">
+  <link rel="stylesheet" href="styles.css?v=4">
 </head>
 <body>
   <header class="topbar">
@@ -111,6 +111,7 @@
           <legend>Nos dias</legend>
           <div id="weekdaysList"></div>
         </fieldset>
+        <label class="check" id="eventDoneField"><input type="checkbox" name="done"> <span id="eventDoneLabel">Concluído</span></label>
         <p class="hint" id="seriesHint" hidden>Este compromisso se repete: as alterações valem para todas as repetições.</p>
         <label class="field"><span>Observações</span><textarea name="notes" rows="3" maxlength="5000"></textarea></label>
         <p class="form-error" id="eventError" role="alert" hidden></p>
@@ -230,9 +231,9 @@
     </form>
   </dialog>
 
-  <script src="js/utils.js?v=3"></script>
-  <script src="js/schedule.js?v=3"></script>
-  <script src="js/store.js?v=3"></script>
-  <script src="js/app.js?v=3"></script>
+  <script src="js/utils.js?v=4"></script>
+  <script src="js/schedule.js?v=4"></script>
+  <script src="js/store.js?v=4"></script>
+  <script src="js/app.js?v=4"></script>
 </body>
 </html>

@@ -79,3 +79,9 @@ test('lista colada vira itens, sem marcadores', () => {
 test('números no início do item são mantidos quando não são marcador', () => {
   assert.deepEqual(S.parseItems('1.5 kg de arroz\n2 pacotes de café'), ['1.5 kg de arroz', '2 pacotes de café']);
 });
+
+test('ocorrência concluída é marcada só na data certa', () => {
+  const e = ev({ repeat: { type: 'daily' }, completed: ['2026-10-02'] });
+  const occ = S.occurrencesBetween([e], '2026-10-01', '2026-10-03');
+  assert.deepEqual(occ.map((o) => [o.date, o.done]), [['2026-10-01', false], ['2026-10-02', true], ['2026-10-03', false]]);
+});
