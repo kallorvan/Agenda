@@ -28,6 +28,8 @@ Funciona direto no navegador, sem instalar nada e sem login.
   **caixas de seleção** (clique na caixa para marcar). Salva sozinho enquanto você digita.
   Na janela de um compromisso, **Anotações da reunião** cria ou abre a ata daquele dia;
   o compromisso ganha um 📝 quando tem anotação.
+  O botão **⬇ .md** salva a anotação aberta como arquivo Markdown (`.md`), com título,
+  projeto, reunião, títulos, listas e caixas de seleção (`- [x]`).
 - **Projetos**: cores para separar clientes ou frentes de trabalho, com filtro no topo.
   Dá para criar um projeto na hora, ao cadastrar uma tarefa, compromisso ou anotação:
   no campo Projeto, escolha **+ Novo projeto…**.

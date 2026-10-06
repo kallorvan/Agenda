@@ -623,6 +623,7 @@
       case 'open-note': return openNote(id);
       case 'pin-note': return togglePin();
       case 'delete-note': return deleteNote();
+      case 'export-note-md': return exportNoteMarkdown();
       case 'task-tab': state.taskTab = el.dataset.tab; return render();
       case 'export': return exportBackup();
     }
@@ -735,6 +736,7 @@
         <div class="note-actions">
           <select id="noteProject" aria-label="Projeto da anotação"></select>
           <button type="button" class="icon-btn pin-btn ${note.pinned ? 'active' : ''}" data-action="pin-note" aria-pressed="${!!note.pinned}" title="${note.pinned ? 'Desafixar' : 'Fixar no topo'}" aria-label="${note.pinned ? 'Desafixar' : 'Fixar no topo'}">📌</button>
+          <button type="button" class="btn ghost small" data-action="export-note-md" title="Salvar esta anotação como arquivo Markdown (.md)">⬇ .md</button>
           <button type="button" class="icon-btn" data-action="delete-note" title="Excluir anotação" aria-label="Excluir anotação">🗑</button>
         </div>
       </div>
@@ -1374,16 +1376,33 @@
 
   // ----- Backup -----
 
-  function exportBackup() {
-    const blob = new Blob([Store.exportJSON()], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
+  function downloadFile(name, content, type) {
+    const url = URL.createObjectURL(new Blob([content], { type }));
     const a = document.createElement('a');
     a.href = url;
-    a.download = `agenda-backup-${U.todayKey()}.json`;
+    a.download = name;
     document.body.append(a);
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  function exportNoteMarkdown() {
+    flushNoteSave();
+    const note = findNote(state.noteId);
+    if (!note) return;
+    const ev = note.eventId && data().events.find((e) => e.id === note.eventId);
+    const md = Notes.noteToMarkdown(note, {
+      project: projectOf(note.projectId)?.name,
+      event: ev ? `${ev.title}, ${U.fromKey(note.eventDate).toLocaleDateString('pt-BR')} ${ev.start}–${ev.end}` : null,
+    });
+    const name = Notes.fileName(note.title);
+    downloadFile(name, md, 'text/markdown;charset=utf-8');
+    toast(`Arquivo salvo: ${name}`);
+  }
+
+  function exportBackup() {
+    downloadFile(`agenda-backup-${U.todayKey()}.json`, Store.exportJSON(), 'application/json');
     Store.setSettings({ lastBackup: Date.now() });
     if ($('#settingsDialog').open) $('#lastBackupInfo').textContent = 'Último backup: agora.';
     render();

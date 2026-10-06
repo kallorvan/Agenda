@@ -57,7 +57,103 @@ const Notes = (() => {
     return root.textContent.replace(/\s+/g, ' ').trim();
   }
 
-  return { sortNotes, matches, sanitizeHtml, toText, fold };
+  // ----- Exportação em Markdown -----
+
+  // Escapa caracteres que o Markdown interpretaria como formatação.
+  const escapeMd = (text) => text.replace(/([\\`*_[\]])/g, '\\$1');
+
+  // Coloca os marcadores colados ao texto: " **x** " e não "** x **".
+  function wrap(text, marker) {
+    const [, lead, body, trail] = text.match(/^(\s*)([\s\S]*?)(\s*)$/);
+    return body ? `${lead}${marker}${body}${marker}${trail}` : text;
+  }
+
+  function inlineMd(node) {
+    return [...node.childNodes].map((n) => {
+      if (n.nodeType === Node.TEXT_NODE) return escapeMd(n.textContent.replace(/\s+/g, ' '));
+      if (n.nodeType !== Node.ELEMENT_NODE) return '';
+      const tag = n.tagName;
+      if (tag === 'BR') return '  \n';
+      if (tag === 'UL' || tag === 'OL') return '';
+      const inner = inlineMd(n);
+      if (tag === 'B' || tag === 'STRONG') return wrap(inner, '**');
+      if (tag === 'I' || tag === 'EM') return wrap(inner, '*');
+      return inner;
+    }).join('');
+  }
+
+  function listMd(list, depth) {
+    const lines = [];
+    const ordered = list.tagName === 'OL';
+    const checklist = list.classList.contains('checklist');
+    let n = 1;
+    for (const li of list.children) {
+      // O navegador às vezes coloca a sublista direto dentro da lista.
+      if (li.tagName === 'UL' || li.tagName === 'OL') { lines.push(...listMd(li, depth + 1)); continue; }
+      if (li.tagName !== 'LI') continue;
+      const marker = ordered ? `${n++}.` : checklist ? `- [${li.dataset.checked === 'true' ? 'x' : ' '}]` : '-';
+      lines.push(`${'   '.repeat(depth)}${marker} ${inlineMd(li).trim()}`);
+      for (const sub of li.children) {
+        if (sub.tagName === 'UL' || sub.tagName === 'OL') lines.push(...listMd(sub, depth + 1));
+      }
+    }
+    return lines;
+  }
+
+  function htmlToMarkdown(html) {
+    const doc = new DOMParser().parseFromString(`<div>${sanitizeHtml(html)}</div>`, 'text/html');
+    const blocks = [];
+    let loose = '';
+    const flush = () => {
+      if (loose.trim()) blocks.push(loose.trim());
+      loose = '';
+    };
+    for (const node of doc.body.firstElementChild.childNodes) {
+      const tag = node.nodeType === Node.ELEMENT_NODE ? node.tagName : '';
+      if (tag === 'H2' || tag === 'H3') {
+        flush();
+        const text = inlineMd(node).trim();
+        if (text) blocks.push(`${tag === 'H2' ? '##' : '###'} ${text}`);
+      } else if (tag === 'UL' || tag === 'OL') {
+        flush();
+        blocks.push(listMd(node, 0).join('\n'));
+      } else if (tag === 'P' || tag === 'DIV') {
+        flush();
+        const sub = [...node.children].some((c) => ['UL', 'OL', 'H2', 'H3', 'P', 'DIV'].includes(c.tagName));
+        if (sub) blocks.push(htmlToMarkdown(node.innerHTML));
+        else if (inlineMd(node).trim()) blocks.push(inlineMd(node).trim());
+      } else {
+        loose += node.nodeType === Node.ELEMENT_NODE ? inlineMd({ childNodes: [node] }) : escapeMd(node.textContent.replace(/\s+/g, ' '));
+      }
+    }
+    flush();
+    return blocks.filter(Boolean).join('\n\n');
+  }
+
+  // Arquivo completo: título, dados da anotação e o texto.
+  function noteToMarkdown(note, { project, event } = {}) {
+    const meta = [];
+    if (project) meta.push(`Projeto: ${project}`);
+    if (event) meta.push(`Reunião: ${event}`);
+    const parts = [`# ${escapeMd(note.title || 'Sem título')}`];
+    if (meta.length) parts.push(`> ${escapeMd(meta.join(' · '))}`);
+    const body = htmlToMarkdown(note.html);
+    if (body) parts.push(body);
+    return `${parts.join('\n\n')}\n`;
+  }
+
+  // Nome de arquivo válido no Windows, Mac e Linux.
+  function fileName(title) {
+    const base = String(title || '')
+      .replace(/[\\/]/g, '-') // datas como 06/10/2026 viram 06-10-2026
+      .replace(/[:*?"<>|\u0000-\u001f]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 80);
+    return `${base || 'anotacao'}.md`;
+  }
+
+  return { sortNotes, matches, sanitizeHtml, toText, fold, htmlToMarkdown, noteToMarkdown, fileName };
 })();
 
 if (typeof module !== 'undefined') module.exports = Notes;
