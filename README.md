@@ -23,6 +23,11 @@ Funciona direto no navegador, sem instalar nada e sem login.
   O botão **Desmarcar todos** permite reaproveitar a lista.
 - **Lembretes**: notificação do sistema e aviso dentro da agenda. Funcionam enquanto a agenda
   estiver aberta em alguma aba do navegador (pode ficar em segundo plano).
+- **Caderno de anotações** (aba **Notas**, atalho `A`): várias anotações com título, busca
+  (ignora acentos), fixar no topo e projeto. Texto com negrito, itálico, títulos, listas e
+  **caixas de seleção** (clique na caixa para marcar). Salva sozinho enquanto você digita.
+  Na janela de um compromisso, **Anotações da reunião** cria ou abre a ata daquele dia;
+  o compromisso ganha um 📝 quando tem anotação.
 - **Projetos**: cores para separar clientes ou frentes de trabalho, com filtro no topo.
 
 Atalhos: `C` novo compromisso · `N` nova tarefa · `T` hoje · `D`/`S`/`M` dia, semana e mês · `←` `→` navegar.
@@ -60,6 +65,7 @@ HTML, CSS e JavaScript puro, sem dependências nem etapa de build.
 
 - `js/utils.js`: datas e formatação
 - `js/schedule.js`: repetição, situação e ordem das tarefas, posicionamento na linha do tempo
+- `js/notes.js`: ordem, busca e limpeza do texto das anotações
 - `js/store.js`: armazenamento local e backup
 - `js/app.js`: interface
 

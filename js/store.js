@@ -14,6 +14,7 @@ const Store = (() => {
     projects: [],
     events: [],
     tasks: [],
+    notes: [],
   });
 
   // Valida e completa dados vindos do armazenamento ou de um backup.
@@ -29,6 +30,7 @@ const Store = (() => {
       projects: list(raw.projects),
       events: list(raw.events),
       tasks: list(raw.tasks),
+      notes: list(raw.notes),
     };
   }
 
@@ -77,7 +79,7 @@ const Store = (() => {
 
   function removeProject(id) {
     data.projects = data.projects.filter((p) => p.id !== id);
-    for (const item of [...data.events, ...data.tasks]) {
+    for (const item of [...data.events, ...data.tasks, ...data.notes]) {
       if (item.projectId === id) item.projectId = null;
     }
     return save();
