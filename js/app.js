@@ -19,7 +19,10 @@
   const data = () => Store.data;
   const settings = () => Store.data.settings;
 
-  const state = { view: 'day', date: U.todayKey(), taskTab: 'day', project: '', expanded: new Set() };
+  const state = {
+    view: 'day', date: U.todayKey(), taskTab: 'day', project: '', expanded: new Set(),
+    noteId: null, noteQuery: '',
+  };
   let lastScrollKey = null;
   let lastMinute = U.nowTime();
 
@@ -65,8 +68,10 @@
   // ---------- Renderização ----------
 
   function render() {
+    flushNoteSave();
     $$('.segmented [data-view]').forEach((b) => b.classList.toggle('active', b.dataset.view === state.view));
     $('#periodLabel').textContent = periodLabel();
+    ['#prevBtn', '#nextBtn', '#todayBtn'].forEach((sel) => ($(sel).hidden = state.view === 'notes'));
     fillProjectSelect($('#projectFilter'), state.project, 'Todos os projetos');
     state.project = $('#projectFilter').value;
 
@@ -74,6 +79,7 @@
     view.className = `view-${state.view}`;
     if (state.view === 'day') view.innerHTML = renderDay();
     else if (state.view === 'week') view.innerHTML = renderWeek();
+    else if (state.view === 'notes') { view.innerHTML = renderNotes(); mountNoteEditor(); }
     else view.innerHTML = renderMonth();
 
     autoScroll();
@@ -81,6 +87,7 @@
   }
 
   function periodLabel() {
+    if (state.view === 'notes') return 'Caderno de anotações';
     if (state.view === 'day') {
       const label = U.longDate(state.date);
       return label.charAt(0).toUpperCase() + label.slice(1);
@@ -132,6 +139,7 @@
     const now = new Date();
     const today = U.todayKey();
     const nowMin = U.toMin(U.nowTime(now));
+    const noted = new Set(data().notes.filter((n) => n.eventId).map((n) => `${n.eventId}|${n.eventDate}`));
 
     const blocks = Schedule.layout(occs.filter(isVisible)).map(({ occ, col, cols }) => {
       const ev = occ.event;
@@ -147,7 +155,7 @@
           title="${esc(`${occ.start}–${occ.end} ${ev.title}${occ.done ? ' (concluído)' : ''}`)}">
           ${eventCheck(occ)}
           <span class="ev-title">${esc(ev.title)}</span>
-          <span class="ev-time">${occ.start}–${occ.end}${ev.repeat?.type && ev.repeat.type !== 'none' ? ' ↻' : ''}</span>
+          <span class="ev-time">${occ.start}–${occ.end}${ev.repeat?.type && ev.repeat.type !== 'none' ? ' ↻' : ''}${noted.has(occ.key) ? ' 📝' : ''}</span>
           ${ev.location ? `<span class="ev-loc">${esc(ev.location)}</span>` : ''}
         </div>`;
     });
@@ -307,7 +315,7 @@
     };
 
     const lastBackup = settings().lastBackup;
-    const hasData = data().events.length + data().tasks.length > 0;
+    const hasData = data().events.length + data().tasks.length + data().notes.length > 0;
     const backupDue = hasData && (!lastBackup || Date.now() - lastBackup > 7 * 86400000);
 
     return `<aside class="side-panel">
@@ -420,12 +428,14 @@
   // ---------- Ações na tela ----------
 
   function goto(view, date) {
+    if (state.view === 'notes' && view !== 'notes') { flushNoteSave(); discardIfEmpty(state.noteId); }
     state.view = view;
     if (date) state.date = date;
     render();
   }
 
   function navigate(dir) {
+    if (state.view === 'notes') return;
     if (state.view === 'day') state.date = U.addDays(state.date, dir);
     else if (state.view === 'week') state.date = U.addDays(state.date, dir * 7);
     else state.date = U.addMonths(state.date, dir);
@@ -538,6 +548,10 @@
         return render();
       case 'snooze-task': return snoozeTask(id);
       case 'goto-day': return goto('day', date);
+      case 'new-note': return newNote();
+      case 'open-note': return openNote(id);
+      case 'pin-note': return togglePin();
+      case 'delete-note': return deleteNote();
       case 'task-tab': state.taskTab = el.dataset.tab; return render();
       case 'export': return exportBackup();
     }
@@ -571,6 +585,295 @@
     });
     render();
     $('.quick-add input[name="title"]')?.focus();
+  }
+
+  // ---------- Caderno de anotações ----------
+
+  let noteSaveTimer = null;
+
+  const findNote = (id) => data().notes.find((n) => n.id === id);
+
+  function visibleNotes() {
+    return Notes.sortNotes(data().notes.filter(matchesFilter).filter((n) => Notes.matches(n, state.noteQuery)));
+  }
+
+  function currentNote() {
+    const note = findNote(state.noteId);
+    if (note && matchesFilter(note)) return note;
+    const first = visibleNotes()[0];
+    state.noteId = first ? first.id : null;
+    return first || null;
+  }
+
+  function renderNotes() {
+    const note = currentNote();
+    return `<div class="notes-layout">
+      <aside class="panel notes-side">
+        <div class="notes-side-head">
+          <input type="search" id="noteSearch" placeholder="Buscar anotações…" value="${esc(state.noteQuery)}" aria-label="Buscar anotações" autocomplete="off">
+          <button type="button" class="btn primary small" data-action="new-note" title="Nova anotação">+ Nova</button>
+        </div>
+        <ul class="notes-list" id="notesList">${notesListHtml()}</ul>
+      </aside>
+      <section class="panel note-pane">${note ? noteEditorHtml(note) : `<div class="notes-empty">
+          <p>${data().notes.length ? 'Nenhuma anotação aqui.' : 'Seu caderno está vazio.'}</p>
+          <p class="muted">Use para ideias, procedimentos, contatos ou atas de reunião.</p>
+          <button type="button" class="btn primary" data-action="new-note">+ Nova anotação</button>
+        </div>`}</section>
+    </div>`;
+  }
+
+  function noteUpdatedLabel(ts) {
+    if (!ts) return '';
+    const d = new Date(ts);
+    const key = U.toKey(d);
+    return key === U.todayKey() ? `Hoje ${U.nowTime(d)}` : U.relativeDay(key);
+  }
+
+  function notesListHtml() {
+    const list = visibleNotes();
+    if (!list.length) {
+      return `<li class="empty">${state.noteQuery ? 'Nenhuma anotação encontrada.' : 'Nenhuma anotação ainda.'}</li>`;
+    }
+    return list.map((n) => `<li>
+      <button type="button" class="note-item ${n.id === state.noteId ? 'active' : ''}" data-action="open-note" data-id="${esc(n.id)}" style="--c:${esc(projectColor(n.projectId))}">
+        <span class="note-item-title">${n.pinned ? '<span class="pin-mark" title="Fixada">📌</span>' : ''}${esc(n.title || 'Sem título')}</span>
+        <span class="note-item-preview">${esc((n.text || '').slice(0, 100)) || 'Sem conteúdo'}</span>
+        <span class="note-item-meta">${esc(noteUpdatedLabel(n.updatedAt))}${n.eventId ? ' · 📅 reunião' : ''} ${projectChip(n.projectId)}</span>
+      </button></li>`).join('');
+  }
+
+  function refreshNotesList() {
+    const list = $('#notesList');
+    if (list) list.innerHTML = notesListHtml();
+  }
+
+  function noteEventHtml(note) {
+    if (!note.eventId) return '';
+    const ev = data().events.find((e) => e.id === note.eventId);
+    if (!ev) return '<p class="note-event missing">📅 O compromisso desta anotação foi excluído.</p>';
+    return `<button type="button" class="note-event" data-action="goto-day" data-date="${esc(note.eventDate)}" title="Ir para o dia do compromisso">
+      📅 ${esc(ev.title)} · ${esc(U.relativeDay(note.eventDate))} ${esc(ev.start)}–${esc(ev.end)} <span aria-hidden="true">→</span></button>`;
+  }
+
+  function noteEditorHtml(note) {
+    const tool = (cmd, label, title) =>
+      `<button type="button" class="tool" data-cmd="${cmd}" title="${title}" aria-label="${title}">${label}</button>`;
+    return `<div class="note-head">
+        <input class="note-title" id="noteTitle" value="${esc(note.title)}" placeholder="Título" maxlength="200" aria-label="Título da anotação" autocomplete="off">
+        <div class="note-actions">
+          <select id="noteProject" aria-label="Projeto da anotação"></select>
+          <button type="button" class="icon-btn pin-btn ${note.pinned ? 'active' : ''}" data-action="pin-note" aria-pressed="${!!note.pinned}" title="${note.pinned ? 'Desafixar' : 'Fixar no topo'}" aria-label="${note.pinned ? 'Desafixar' : 'Fixar no topo'}">📌</button>
+          <button type="button" class="icon-btn" data-action="delete-note" title="Excluir anotação" aria-label="Excluir anotação">🗑</button>
+        </div>
+      </div>
+      ${noteEventHtml(note)}
+      <div class="note-toolbar" role="toolbar" aria-label="Formatação">
+        ${tool('bold', '<b>B</b>', 'Negrito (Ctrl+B)')}
+        ${tool('italic', '<i>I</i>', 'Itálico (Ctrl+I)')}
+        ${tool('heading', 'Título', 'Título de seção')}
+        <span class="sep"></span>
+        ${tool('insertUnorderedList', '• Lista', 'Lista com marcadores')}
+        ${tool('insertOrderedList', '1. Lista', 'Lista numerada')}
+        ${tool('checklist', '☑ Caixas', 'Lista com caixas de seleção')}
+      </div>
+      <div class="note-body" id="noteBody" contenteditable="true" role="textbox" aria-multiline="true" aria-label="Texto da anotação" data-placeholder="Escreva aqui…"></div>
+      <p class="note-status" id="noteStatus">Salvo automaticamente · editada ${esc(noteUpdatedLabel(note.updatedAt).toLowerCase())}</p>`;
+  }
+
+  function mountNoteEditor() {
+    const note = findNote(state.noteId);
+    const body = $('#noteBody');
+    if (!note || !body) return;
+    body.innerHTML = Notes.sanitizeHtml(note.html);
+    fillProjectSelect($('#noteProject'), note.projectId, 'Sem projeto');
+  }
+
+  function scheduleNoteSave() {
+    clearTimeout(noteSaveTimer);
+    const status = $('#noteStatus');
+    if (status) status.textContent = 'Salvando…';
+    noteSaveTimer = setTimeout(saveCurrentNote, 400);
+  }
+
+  function flushNoteSave() {
+    if (!noteSaveTimer) return;
+    clearTimeout(noteSaveTimer);
+    saveCurrentNote();
+  }
+
+  function saveCurrentNote() {
+    noteSaveTimer = null;
+    const note = findNote(state.noteId);
+    const body = $('#noteBody');
+    if (!note || !body) return;
+    const html = Notes.sanitizeHtml(body.innerHTML);
+    Store.upsert('notes', {
+      ...note,
+      title: $('#noteTitle').value.trim(),
+      html,
+      text: Notes.toText(html),
+      projectId: $('#noteProject').value || null,
+      updatedAt: Date.now(),
+    });
+    refreshNotesList();
+    const status = $('#noteStatus');
+    if (status) status.textContent = 'Salvo automaticamente';
+  }
+
+  // Anotação criada e deixada em branco não fica ocupando a lista.
+  function discardIfEmpty(id) {
+    const note = findNote(id);
+    if (note && !note.title && !note.text && !note.eventId && !/data-checked/.test(note.html || '')) {
+      Store.remove('notes', id);
+    }
+  }
+
+  function newNote(fields = {}) {
+    flushNoteSave();
+    discardIfEmpty(state.noteId);
+    const now = Date.now();
+    const note = {
+      id: U.uid(), title: '', html: '', text: '', projectId: state.project || null,
+      pinned: false, createdAt: now, updatedAt: now, ...fields,
+    };
+    Store.upsert('notes', note);
+    state.noteId = note.id;
+    state.noteQuery = '';
+    state.view = 'notes';
+    render();
+    (note.title ? $('#noteBody') : $('#noteTitle'))?.focus();
+    return note;
+  }
+
+  function openNote(id) {
+    if (id === state.noteId) return;
+    flushNoteSave();
+    discardIfEmpty(state.noteId);
+    state.noteId = id;
+    render();
+  }
+
+  function togglePin() {
+    flushNoteSave();
+    const note = findNote(state.noteId);
+    if (!note) return;
+    Store.upsert('notes', { ...note, pinned: !note.pinned });
+    render();
+    toast(note.pinned ? 'Anotação desafixada.' : 'Anotação fixada no topo.');
+  }
+
+  async function deleteNote() {
+    flushNoteSave();
+    const note = findNote(state.noteId);
+    if (!note) return;
+    const choice = await askChoice('Excluir anotação', `Excluir "${note.title || 'Sem título'}"?`, [
+      { label: 'Cancelar', value: '' },
+      { label: 'Excluir', value: 'yes', kind: 'danger' },
+    ]);
+    if (!choice) return;
+    Store.remove('notes', note.id);
+    state.noteId = null;
+    render();
+    toast('Anotação excluída.', {
+      action: 'Desfazer',
+      onAction: () => {
+        Store.upsert('notes', note);
+        state.noteId = note.id;
+        goto('notes');
+      },
+    });
+  }
+
+  // Abre (ou cria) a anotação ligada à ocorrência do compromisso aberto.
+  function openMeetingNotes() {
+    const ev = editingEvent;
+    if (!ev) return;
+    const date = ev.repeat?.type !== 'none' && editingOccurrence ? editingOccurrence : ev.date;
+    $('#eventDialog').close();
+    const existing = data().notes.find((n) => n.eventId === ev.id && n.eventDate === date);
+    if (existing && state.project && existing.projectId !== state.project) state.project = '';
+    if (existing) {
+      flushNoteSave();
+      if (state.noteId !== existing.id) discardIfEmpty(state.noteId);
+      state.noteId = existing.id;
+      state.noteQuery = '';
+      goto('notes');
+      $('#noteBody')?.focus();
+      return;
+    }
+    if (state.project && ev.projectId !== state.project) state.project = '';
+    newNote({
+      title: `${ev.title} – ${U.fromKey(date).toLocaleDateString('pt-BR')}`,
+      projectId: ev.projectId || null,
+      eventId: ev.id,
+      eventDate: date,
+    });
+  }
+
+  // ----- Formatação -----
+
+  function selectionLi() {
+    const sel = window.getSelection();
+    const node = sel && sel.anchorNode;
+    const el = node && (node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement);
+    const li = el && el.closest('li');
+    return li && $('#noteBody').contains(li) ? li : null;
+  }
+
+  function applyNoteCommand(cmd) {
+    const body = $('#noteBody');
+    if (!body) return;
+    body.focus();
+    document.execCommand('defaultParagraphSeparator', false, 'p');
+    if (cmd === 'heading') {
+      const current = String(document.queryCommandValue('formatBlock')).toLowerCase();
+      document.execCommand('formatBlock', false, current === 'h2' ? 'p' : 'h2');
+    } else if (cmd === 'checklist') {
+      const li = selectionLi();
+      const ul = li && li.parentElement;
+      if (ul && ul.matches('ul.checklist')) {
+        document.execCommand('insertUnorderedList'); // desfaz a lista
+      } else {
+        if (!ul || ul.tagName !== 'UL') document.execCommand('insertUnorderedList');
+        const list = selectionLi()?.parentElement;
+        if (list && list.tagName === 'UL') {
+          list.classList.add('checklist');
+          list.querySelectorAll(':scope > li').forEach((item) => {
+            if (!item.dataset.checked) item.dataset.checked = 'false';
+          });
+        }
+      }
+    } else {
+      document.execCommand(cmd);
+    }
+    scheduleNoteSave();
+  }
+
+  function onNoteBodyClick(e) {
+    const li = e.target.closest('ul.checklist > li');
+    if (!li || e.target !== li) return;
+    // A caixa fica à esquerda do texto, fora da área do item.
+    if (e.clientX > li.getBoundingClientRect().left + 2) return;
+    li.dataset.checked = li.dataset.checked === 'true' ? 'false' : 'true';
+    scheduleNoteSave();
+  }
+
+  function onNoteBodyKey(e) {
+    if (e.key === 'Enter' && selectionLi()?.parentElement.matches('ul.checklist')) {
+      // Item novo começa desmarcado (o navegador copia os atributos do anterior).
+      setTimeout(() => {
+        const li = selectionLi();
+        if (li && li.parentElement.matches('ul.checklist')) li.dataset.checked = 'false';
+      });
+    }
+  }
+
+  function onNoteBodyPaste(e) {
+    // Cola só o texto, sem a formatação de outros programas.
+    e.preventDefault();
+    const text = e.clipboardData?.getData('text/plain') || '';
+    document.execCommand('insertText', false, text);
   }
 
   // ---------- Diálogos ----------
@@ -627,6 +930,12 @@
     $('#eventDoneLabel').textContent = ev && ev.repeat?.type !== 'none' && occDate
       ? `Concluído em ${U.dayMonth(occDate)}` : 'Concluído';
     $('#eventDeleteBtn').hidden = !ev;
+    $('#eventNotesBtn').hidden = !ev;
+    if (ev) {
+      const noteDate = ev.repeat?.type !== 'none' && date ? date : ev.date;
+      const hasNote = data().notes.some((n) => n.eventId === ev.id && n.eventDate === noteDate);
+      $('#eventNotesLabel').textContent = hasNote ? 'Abrir anotações da reunião' : 'Anotações da reunião';
+    }
     $('#seriesHint').hidden = !(ev && ev.repeat?.type !== 'none');
     updateEventFormState();
     showError($('#eventError'), '');
@@ -1184,8 +1493,8 @@
     const minute = U.nowTime();
     if (minute === lastMinute) return;
     lastMinute = minute;
-    const typing = document.activeElement?.closest('#view input, #view select, #view textarea');
-    if (!typing) render();
+    const typing = document.activeElement?.closest('#view input, #view select, #view textarea, #view [contenteditable]');
+    if (!typing && state.view !== 'notes') render();
     else updateTitle();
   }
 
@@ -1202,6 +1511,7 @@
       d: () => goto('day'),
       s: () => goto('week'),
       m: () => goto('month'),
+      a: () => goto('notes'),
       ArrowLeft: () => navigate(-1),
       ArrowRight: () => navigate(1),
     };
@@ -1224,6 +1534,28 @@
     const view = $('#view');
     view.addEventListener('click', onViewClick);
     view.addEventListener('submit', onViewSubmit);
+    view.addEventListener('input', (e) => {
+      if (e.target.id === 'noteSearch') { state.noteQuery = e.target.value; refreshNotesList(); }
+      else if (e.target.id === 'noteTitle' || e.target.id === 'noteBody') scheduleNoteSave();
+    });
+    view.addEventListener('change', (e) => {
+      if (e.target.id === 'noteProject') { scheduleNoteSave(); flushNoteSave(); }
+    });
+    view.addEventListener('mousedown', (e) => {
+      // Mantém a seleção do texto ao clicar na barra de formatação.
+      if (e.target.closest('[data-cmd]')) e.preventDefault();
+    });
+    view.addEventListener('click', (e) => {
+      const tool = e.target.closest('[data-cmd]');
+      if (tool) applyNoteCommand(tool.dataset.cmd);
+      else if (e.target.closest('#noteBody')) onNoteBodyClick(e);
+    });
+    view.addEventListener('keydown', (e) => {
+      if (e.target.id === 'noteBody') onNoteBodyKey(e);
+      if (e.target.id === 'noteTitle' && e.key === 'Enter') { e.preventDefault(); $('#noteBody').focus(); }
+    });
+    view.addEventListener('paste', (e) => { if (e.target.closest('#noteBody')) onNoteBodyPaste(e); });
+    window.addEventListener('beforeunload', flushNoteSave);
     view.addEventListener('keydown', (e) => {
       if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('[role="button"]')) {
         e.preventDefault();
@@ -1255,6 +1587,7 @@
       }
     });
     $('#eventDeleteBtn').addEventListener('click', deleteEvent);
+    $('#eventNotesBtn').addEventListener('click', openMeetingNotes);
 
     $('#taskForm').addEventListener('submit', submitTask);
     $('#taskDeleteBtn').addEventListener('click', deleteTask);
