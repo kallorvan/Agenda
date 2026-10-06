@@ -43,11 +43,82 @@
     return p ? `<span class="chip" style="--c:${esc(p.color)}"><i></i>${esc(p.name)}</span>` : '';
   }
 
-  function fillProjectSelect(select, value, emptyLabel) {
+  const NEW_PROJECT = '__novo__';
+  const PROJECT_COLORS = ['#2f6fed', '#0f9d76', '#d9480f', '#7c3aed', '#c2255c', '#0b7285', '#a16207', '#4b5563'];
+  const nextProjectColor = (count = data().projects.length) => PROJECT_COLORS[count % PROJECT_COLORS.length];
+
+  // allowNew acrescenta a opção "+ Novo projeto…", que abre o cadastro rápido.
+  function fillProjectSelect(select, value, emptyLabel, { allowNew = false } = {}) {
     select.innerHTML =
       `<option value="">${esc(emptyLabel)}</option>` +
-      data().projects.map((p) => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('');
+      data().projects.map((p) => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('') +
+      (allowNew ? `<option value="${NEW_PROJECT}">+ Novo projeto…</option>` : '');
     select.value = value && projectOf(value) ? value : '';
+    select.dataset.prev = select.value;
+    select.dataset.empty = emptyLabel;
+    if (allowNew) select.dataset.allowNew = '1';
+  }
+
+  // ----- Cadastro rápido de projeto (dentro dos formulários) -----
+
+  function closeProjectCreator() {
+    $('.project-creator')?.remove();
+  }
+
+  function openProjectCreator(select) {
+    closeProjectCreator();
+    const box = document.createElement('div');
+    box.className = 'project-creator';
+    box.innerHTML = `
+      <input type="color" class="pc-color" value="${nextProjectColor()}" aria-label="Cor do novo projeto">
+      <input class="pc-name" maxlength="60" placeholder="Nome do novo projeto" autocomplete="off" aria-label="Nome do novo projeto">
+      <button type="button" class="btn primary small" data-pc="ok">Criar</button>
+      <button type="button" class="btn ghost small" data-pc="cancel">Cancelar</button>`;
+    (select.closest('.row') || select.closest('.field') || select.closest('.note-head') || select).after(box);
+
+    const cancel = () => {
+      select.value = select.dataset.prev || '';
+      closeProjectCreator();
+      select.focus();
+    };
+    const create = () => {
+      const name = $('.pc-name', box).value.trim();
+      if (!name) return $('.pc-name', box).focus();
+      let project = data().projects.find((p) => p.name.toLowerCase() === name.toLowerCase());
+      if (!project) {
+        project = { id: U.uid(), name, color: $('.pc-color', box).value };
+        Store.upsert('projects', project);
+        toast(`Projeto criado: ${name}`);
+      }
+      fillProjectSelect(select, project.id, select.dataset.empty, { allowNew: true });
+      fillProjectSelect($('#projectFilter'), state.project, 'Todos os projetos');
+      closeProjectCreator();
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+      select.focus();
+    };
+    box.addEventListener('click', (e) => {
+      const action = e.target.closest('[data-pc]')?.dataset.pc;
+      if (action === 'ok') create();
+      if (action === 'cancel') cancel();
+    });
+    box.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); create(); }
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cancel(); }
+    });
+    $('.pc-name', box).focus();
+  }
+
+  // Projeto escolhido no select, ignorando a opção "+ Novo projeto…" ainda não concluída.
+  function selectedProject(select) {
+    const value = select.value === NEW_PROJECT ? select.dataset.prev : select.value;
+    return value || null;
+  }
+
+  function onProjectSelectChange(e) {
+    const select = e.target;
+    if (!(select instanceof HTMLSelectElement) || !select.dataset.allowNew) return;
+    if (select.value === NEW_PROJECT) openProjectCreator(select);
+    else { select.dataset.prev = select.value; closeProjectCreator(); }
   }
 
   function fillReminderSelect(select, value) {
@@ -686,7 +757,7 @@
     const body = $('#noteBody');
     if (!note || !body) return;
     body.innerHTML = Notes.sanitizeHtml(note.html);
-    fillProjectSelect($('#noteProject'), note.projectId, 'Sem projeto');
+    fillProjectSelect($('#noteProject'), note.projectId, 'Sem projeto', { allowNew: true });
   }
 
   function scheduleNoteSave() {
@@ -713,7 +784,7 @@
       title: $('#noteTitle').value.trim(),
       html,
       text: Notes.toText(html),
-      projectId: $('#noteProject').value || null,
+      projectId: $('#noteProject').value === NEW_PROJECT ? note.projectId : $('#noteProject').value || null,
       updatedAt: Date.now(),
     });
     refreshNotesList();
@@ -914,7 +985,7 @@
     form.start.value = values.start;
     form.end.value = values.end;
     form.location.value = values.location || '';
-    fillProjectSelect(form.projectId, values.projectId, 'Sem projeto');
+    fillProjectSelect(form.projectId, values.projectId, 'Sem projeto', { allowNew: true });
     fillReminderSelect(form.reminder, values.reminder);
     form.repeat.value = values.repeat?.type || 'none';
     form.until.value = values.repeat?.until || '';
@@ -987,7 +1058,7 @@
       start: form.start.value,
       end: form.end.value,
       location: form.location.value.trim(),
-      projectId: form.projectId.value || null,
+      projectId: selectedProject(form.projectId),
       reminder: parseReminder(form.reminder.value),
       repeat: {
         type: repeatType,
@@ -1138,7 +1209,7 @@
     form.priority.value = values.priority || 'media';
     form.dueDate.value = values.dueDate || '';
     form.dueTime.value = values.dueTime || '';
-    fillProjectSelect(form.projectId, values.projectId, 'Sem projeto');
+    fillProjectSelect(form.projectId, values.projectId, 'Sem projeto', { allowNew: true });
     form.notes.value = values.notes || '';
     form.done.checked = !!values.done;
     form.done.closest('label').hidden = !task;
@@ -1172,7 +1243,7 @@
       priority: form.priority.value || 'media',
       dueDate: form.dueDate.value || null,
       dueTime: form.dueTime.value || null,
-      projectId: form.projectId.value || null,
+      projectId: selectedProject(form.projectId),
       notes: form.notes.value.trim(),
       items,
       done,
@@ -1272,8 +1343,7 @@
     draftProjects.push({ id: U.uid(), name, color: $('#newProjectColor').value });
     $('#newProjectName').value = '';
     // Sugere uma cor diferente para o próximo projeto.
-    const palette = ['#2f6fed', '#0f9d76', '#d9480f', '#7c3aed', '#c2255c', '#0b7285', '#a16207', '#4b5563'];
-    $('#newProjectColor').value = palette[draftProjects.length % palette.length];
+    $('#newProjectColor').value = nextProjectColor(draftProjects.length);
     renderProjectList();
     $('#newProjectName').focus();
   }
@@ -1539,7 +1609,7 @@
       else if (e.target.id === 'noteTitle' || e.target.id === 'noteBody') scheduleNoteSave();
     });
     view.addEventListener('change', (e) => {
-      if (e.target.id === 'noteProject') { scheduleNoteSave(); flushNoteSave(); }
+      if (e.target.id === 'noteProject' && e.target.value !== NEW_PROJECT) { scheduleNoteSave(); flushNoteSave(); }
     });
     view.addEventListener('mousedown', (e) => {
       // Mantém a seleção do texto ao clicar na barra de formatação.
@@ -1568,7 +1638,9 @@
       dialog.addEventListener('click', (e) => {
         if (e.target.closest('[data-close]') || e.target === dialog) dialog.close();
       });
+      dialog.addEventListener('close', closeProjectCreator);
     });
+    document.addEventListener('change', onProjectSelectChange);
 
     const eventForm = $('#eventForm');
     eventForm.addEventListener('submit', submitEvent);

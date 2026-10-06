@@ -29,6 +29,8 @@ Funciona direto no navegador, sem instalar nada e sem login.
   Na janela de um compromisso, **Anotações da reunião** cria ou abre a ata daquele dia;
   o compromisso ganha um 📝 quando tem anotação.
 - **Projetos**: cores para separar clientes ou frentes de trabalho, com filtro no topo.
+  Dá para criar um projeto na hora, ao cadastrar uma tarefa, compromisso ou anotação:
+  no campo Projeto, escolha **+ Novo projeto…**.
 
 Atalhos: `C` novo compromisso · `N` nova tarefa · `T` hoje · `D`/`S`/`M` dia, semana e mês · `←` `→` navegar.
 
