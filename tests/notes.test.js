@@ -19,3 +19,9 @@ test('busca ignora acentos e maiúsculas e exige todas as palavras', () => {
   assert.ok(Notes.matches(note, ''));
   assert.ok(!Notes.matches(note, 'alfa beta'));
 });
+
+test('nome do arquivo .md sem caracteres inválidos', () => {
+  assert.equal(Notes.fileName('Ata: reunião 06/10/2026?'), 'Ata reunião 06-10-2026.md');
+  assert.equal(Notes.fileName('   '), 'anotacao.md');
+  assert.equal(Notes.fileName(''), 'anotacao.md');
+});
