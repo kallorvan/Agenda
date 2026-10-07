@@ -744,6 +744,7 @@
       <div class="note-toolbar" role="toolbar" aria-label="Formatação">
         ${tool('bold', '<b>B</b>', 'Negrito (Ctrl+B)')}
         ${tool('italic', '<i>I</i>', 'Itálico (Ctrl+I)')}
+        ${tool('highlight', '<mark>Marcar</mark>', 'Marca-texto: destaca o texto selecionado (clique de novo para tirar)')}
         ${tool('heading', 'Título', 'Título de seção')}
         <span class="sep"></span>
         ${tool('insertUnorderedList', '• Lista', 'Lista com marcadores')}
@@ -751,6 +752,8 @@
         ${tool('checklist', '☑ Caixas', 'Lista com caixas de seleção')}
         <span class="sep"></span>
         ${tool('table', '▦ Tabela', 'Inserir tabela')}
+        ${tool('image', '🖼 Imagem', 'Inserir imagem (ou cole um print com Ctrl+V)')}
+        <input type="file" id="noteImageInput" accept="image/*" multiple hidden>
         <span class="table-tools" role="group" aria-label="Editar tabela">
           ${tool('row-add', '+ Linha', 'Adicionar linha abaixo')}
           ${tool('col-add', '+ Coluna', 'Adicionar coluna à direita')}
@@ -768,6 +771,7 @@
     const body = $('#noteBody');
     if (!note || !body) return;
     body.innerHTML = Notes.sanitizeHtml(note.html);
+    loadNoteImages(body);
     document.execCommand('defaultParagraphSeparator', false, 'p'); // Enter cria parágrafos, não <div>
     fillProjectSelect($('#noteProject'), note.projectId, 'Sem projeto', { allowNew: true });
   }
@@ -807,7 +811,7 @@
   // Anotação criada e deixada em branco não fica ocupando a lista.
   function discardIfEmpty(id) {
     const note = findNote(id);
-    if (note && !note.title && !note.text && !note.eventId && !/data-checked/.test(note.html || '')) {
+    if (note && !note.title && !note.text && !note.eventId && !/data-checked|data-img|<table/.test(note.html || '')) {
       Store.remove('notes', id);
     }
   }
@@ -1023,7 +1027,13 @@
     body.focus();
     document.execCommand('defaultParagraphSeparator', false, 'p');
     const tableOps = { 'row-add': addRow, 'col-add': addColumn, 'row-del': removeRow, 'col-del': removeColumn, 'table-del': removeTable };
-    if (cmd === 'table') {
+    if (cmd === 'highlight') {
+      toggleHighlight();
+    } else if (cmd === 'image') {
+      rememberSelection();
+      $('#noteImageInput')?.click();
+      return;
+    } else if (cmd === 'table') {
       if (selectionCell()) return toast('Não dá para colocar uma tabela dentro de outra.');
       insertTable();
     } else if (tableOps[cmd]) {
@@ -1077,10 +1087,128 @@
   }
 
   function onNoteBodyPaste(e) {
-    // Cola só o texto, sem a formatação de outros programas.
     e.preventDefault();
+    // Print (Win+Shift+S, PrtScn…) ou imagem copiada: entra como imagem.
+    const files = [...(e.clipboardData?.items || [])]
+      .filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
+      .map((item) => item.getAsFile())
+      .filter(Boolean);
+    if (files.length) return insertImages(files);
+    // Texto entra sem a formatação de outros programas.
     const text = e.clipboardData?.getData('text/plain') || '';
     document.execCommand('insertText', false, text);
+  }
+
+  function onNoteBodyDrop(e) {
+    const files = [...(e.dataTransfer?.files || [])].filter((f) => f.type.startsWith('image/'));
+    if (!files.length) return;
+    e.preventDefault();
+    const range = document.caretRangeFromPoint?.(e.clientX, e.clientY);
+    if (range) {
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
+    insertImages(files);
+  }
+
+  // ----- Marca-texto -----
+
+  // Destaca a seleção em amarelo; se ela já tiver destaque, remove.
+  function toggleHighlight() {
+    const body = $('#noteBody');
+    const sel = window.getSelection();
+    if (!sel.rangeCount) return;
+    const range = sel.getRangeAt(0);
+    const anchorMark = (sel.anchorNode?.nodeType === Node.ELEMENT_NODE ? sel.anchorNode : sel.anchorNode?.parentElement)?.closest('mark');
+    const marks = $$('mark', body).filter((m) => range.intersectsNode(m) || m === anchorMark);
+    if (marks.length) {
+      marks.forEach((m) => m.replaceWith(...m.childNodes));
+      body.normalize();
+    } else if (range.collapsed) {
+      return toast('Selecione o texto que quer destacar.');
+    } else {
+      // O navegador aplica o fundo em trechos de vários parágrafos; depois viram <mark>.
+      document.execCommand('styleWithCSS', false, true);
+      document.execCommand('hiliteColor', false, 'rgb(255, 236, 61)');
+      document.execCommand('styleWithCSS', false, false);
+      for (const el of $$('[style]', body)) {
+        if (!el.style.backgroundColor) { el.removeAttribute('style'); continue; }
+        const mark = document.createElement('mark');
+        if (el.tagName === 'SPAN') {
+          mark.append(...el.childNodes);
+          el.replaceWith(mark);
+        } else {
+          mark.append(...el.childNodes);
+          el.append(mark);
+          el.removeAttribute('style');
+        }
+      }
+    }
+    scheduleNoteSave();
+  }
+
+  // ----- Imagens -----
+
+  let savedRange = null;
+
+  function rememberSelection() {
+    const sel = window.getSelection();
+    savedRange = sel.rangeCount && $('#noteBody')?.contains(sel.anchorNode) ? sel.getRangeAt(0).cloneRange() : null;
+  }
+
+  function restoreSelection() {
+    const body = $('#noteBody');
+    const sel = window.getSelection();
+    body.focus();
+    if (savedRange && body.contains(savedRange.startContainer)) {
+      sel.removeAllRanges();
+      sel.addRange(savedRange);
+    } else if (!body.contains(sel.anchorNode)) {
+      const range = document.createRange();
+      range.selectNodeContents(body);
+      range.collapse(false);
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
+    savedRange = null;
+  }
+
+  async function insertImages(files) {
+    const noteId = state.noteId;
+    for (const file of files) {
+      if (file.size > 25 * 1024 * 1024) { toast('Imagem muito grande (máximo 25 MB).', { kind: 'error' }); continue; }
+      let src;
+      const id = U.uid();
+      try {
+        src = await ImageStore.put(id, await ImageStore.compress(file));
+      } catch (err) {
+        console.error(err);
+        toast('Não foi possível guardar a imagem neste navegador.', { kind: 'error' });
+        return;
+      }
+      if (state.noteId !== noteId || !$('#noteBody')) return; // trocou de anotação enquanto processava
+      restoreSelection();
+      document.execCommand('insertHTML', false, `<img data-img="${id}" src="${src}" alt="Imagem colada"><p><br></p>`);
+      rememberSelection();
+    }
+    savedRange = null;
+    scheduleNoteSave();
+  }
+
+  async function loadNoteImages(root) {
+    for (const img of $$('img[data-img]', root)) {
+      img.alt = 'Imagem';
+      const src = await ImageStore.url(img.dataset.img).catch(() => null);
+      if (src) img.src = src;
+      else { img.alt = 'Imagem não encontrada'; img.classList.add('missing'); }
+    }
+  }
+
+  async function onImageInputChange(e) {
+    const files = [...e.target.files].filter((f) => f.type.startsWith('image/'));
+    e.target.value = '';
+    if (files.length) await insertImages(files);
   }
 
   // ---------- Diálogos ----------
@@ -1521,12 +1649,14 @@
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
-  function exportNoteMarkdown() {
+  async function exportNoteMarkdown() {
     flushNoteSave();
     const note = findNote(state.noteId);
     if (!note) return;
     const ev = note.eventId && data().events.find((e) => e.id === note.eventId);
+    const images = await ImageStore.exportAll(ImageStore.idsIn(note.html)).catch(() => ({}));
     const md = Notes.noteToMarkdown(note, {
+      images,
       project: projectOf(note.projectId)?.name,
       event: ev ? `${ev.title}, ${U.fromKey(note.eventDate).toLocaleDateString('pt-BR')} ${ev.start}–${ev.end}` : null,
     });
@@ -1535,8 +1665,11 @@
     toast(`Arquivo salvo: ${name}`);
   }
 
-  function exportBackup() {
-    downloadFile(`agenda-backup-${U.todayKey()}.json`, Store.exportJSON(), 'application/json');
+  const allImageIds = () => data().notes.flatMap((n) => ImageStore.idsIn(n.html));
+
+  async function exportBackup() {
+    const images = await ImageStore.exportAll(allImageIds()).catch(() => ({}));
+    downloadFile(`agenda-backup-${U.todayKey()}.json`, Store.exportJSON({ images }), 'application/json');
     Store.setSettings({ lastBackup: Date.now() });
     if ($('#settingsDialog').open) $('#lastBackupInfo').textContent = 'Último backup: agora.';
     render();
@@ -1558,6 +1691,12 @@
     ]);
     if (!choice) return;
     Store.importJSON(text);
+    try {
+      await ImageStore.importAll(JSON.parse(text).images);
+    } catch (err) {
+      console.error(err);
+      toast('Algumas imagens do backup não puderam ser restauradas.', { kind: 'error' });
+    }
     state.project = '';
     $('#settingsDialog').close();
     render();
@@ -1745,6 +1884,8 @@
   // ---------- Inicialização ----------
 
   function init() {
+    // Imagens de anotações já excluídas não ocupam espaço.
+    if (!Store.loadFailed) ImageStore.cleanup(allImageIds()).catch(() => {});
     $$('.segmented [data-view]').forEach((b) => b.addEventListener('click', () => goto(b.dataset.view)));
     $('#prevBtn').addEventListener('click', () => navigate(-1));
     $('#nextBtn').addEventListener('click', () => navigate(1));
@@ -1778,6 +1919,8 @@
       if (e.target.id === 'noteTitle' && e.key === 'Enter') { e.preventDefault(); $('#noteBody').focus(); }
     });
     view.addEventListener('paste', (e) => { if (e.target.closest('#noteBody')) onNoteBodyPaste(e); });
+    view.addEventListener('drop', (e) => { if (e.target.closest('#noteBody')) onNoteBodyDrop(e); });
+    view.addEventListener('change', (e) => { if (e.target.id === 'noteImageInput') onImageInputChange(e); });
     window.addEventListener('beforeunload', flushNoteSave);
     document.addEventListener('selectionchange', () => { if (state.view === 'notes') updateTableTools(); });
     view.addEventListener('keydown', (e) => {

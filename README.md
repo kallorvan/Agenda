@@ -28,11 +28,15 @@ Funciona direto no navegador, sem instalar nada e sem login.
   **caixas de seleção** (clique na caixa para marcar) e **tabelas**: o botão ▦ Tabela insere uma
   tabela com cabeçalho; com o cursor numa célula aparecem os botões para adicionar ou remover linhas
   e colunas, e `Tab` passa para a próxima célula (na última, cria uma linha nova).
+  **Marcar** destaca o texto selecionado em amarelo (clique de novo para tirar).
+  **Prints e imagens**: cole com `Ctrl+V` (ex.: depois de `Win+Shift+S`), arraste um arquivo
+  para a anotação ou use o botão 🖼 Imagem. As imagens são reduzidas para no máximo 1920 px.
   Salva sozinho enquanto você digita.
   Na janela de um compromisso, **Anotações da reunião** cria ou abre a ata daquele dia;
   o compromisso ganha um 📝 quando tem anotação.
   O botão **⬇ .md** salva a anotação aberta como arquivo Markdown (`.md`), com título,
-  projeto, reunião, títulos, listas, caixas de seleção (`- [x]`) e tabelas.
+  projeto, reunião, títulos, listas, caixas de seleção (`- [x]`), tabelas, marca-texto
+  (`<mark>`) e imagens (embutidas no próprio arquivo).
 - **Projetos**: cores para separar clientes ou frentes de trabalho, com filtro no topo.
   Dá para criar um projeto na hora, ao cadastrar uma tarefa, compromisso ou anotação:
   no campo Projeto, escolha **+ Novo projeto…**.
@@ -42,6 +46,8 @@ Atalhos: `C` novo compromisso · `N` nova tarefa · `T` hoje · `D`/`S`/`M` dia,
 ## Onde ficam os dados
 
 Os dados ficam **só no seu navegador**, neste computador. Nada é enviado para a internet.
+As imagens das anotações ficam num banco do próprio navegador (IndexedDB), que comporta bem mais
+espaço; elas também entram no backup.
 Por isso, faça backup com frequência: **Configurações → Exportar backup** gera um arquivo `.json`.
 Para restaurar (ou levar para outro computador), use **Importar backup**.
 A agenda avisa quando o último backup tem mais de 7 dias.
@@ -73,6 +79,7 @@ HTML, CSS e JavaScript puro, sem dependências nem etapa de build.
 - `js/utils.js`: datas e formatação
 - `js/schedule.js`: repetição, situação e ordem das tarefas, posicionamento na linha do tempo
 - `js/notes.js`: ordem, busca e limpeza do texto das anotações
+- `js/images.js`: imagens das anotações (IndexedDB), compressão e backup delas
 - `js/store.js`: armazenamento local e backup
 - `js/app.js`: interface
 

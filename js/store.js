@@ -34,6 +34,8 @@ const Store = (() => {
     };
   }
 
+  let loadFailed = false;
+
   function load() {
     let raw = null;
     try {
@@ -41,6 +43,7 @@ const Store = (() => {
       return raw ? normalize(JSON.parse(raw)) : defaults();
     } catch (err) {
       console.error('Falha ao carregar a agenda', err);
+      loadFailed = true;
       // Preserva o conteúdo ilegível para não sobrescrevê-lo.
       try {
         if (raw) localStorage.setItem(`${KEY}.corrompido.${Date.now()}`, raw);
@@ -90,8 +93,9 @@ const Store = (() => {
     return save();
   }
 
-  function exportJSON() {
-    return JSON.stringify({ ...data, exportedAt: new Date().toISOString() }, null, 2);
+  // extra: dados guardados fora do localStorage (ex.: imagens das anotações).
+  function exportJSON(extra = {}) {
+    return JSON.stringify({ ...data, ...extra, exportedAt: new Date().toISOString() }, null, 2);
   }
 
   function importJSON(text) {
@@ -101,6 +105,7 @@ const Store = (() => {
 
   return {
     get data() { return data; },
+    get loadFailed() { return loadFailed; },
     upsert, remove, removeProject, setSettings, exportJSON, importJSON, normalize,
     onSave: (fn) => listeners.add(fn),
   };

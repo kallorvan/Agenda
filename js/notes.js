@@ -23,8 +23,9 @@ const Notes = (() => {
     P: [], DIV: [], BR: [], B: [], STRONG: [], I: [], EM: [], U: [],
     H2: [], H3: [], UL: ['class'], OL: [], LI: ['data-checked'], SPAN: [],
     TABLE: [], THEAD: [], TBODY: [], TR: [], TH: [], TD: [],
+    MARK: [], IMG: ['data-img'],
   };
-  const DROP = ['SCRIPT', 'STYLE', 'IFRAME', 'OBJECT', 'EMBED', 'IMG', 'SVG', 'TEMPLATE', 'LINK', 'META', 'VIDEO', 'AUDIO'];
+  const DROP = ['SCRIPT', 'STYLE', 'IFRAME', 'OBJECT', 'EMBED', 'SVG', 'TEMPLATE', 'LINK', 'META', 'VIDEO', 'AUDIO'];
 
   function sanitizeHtml(html) {
     const doc = new DOMParser().parseFromString(`<div>${html || ''}</div>`, 'text/html');
@@ -35,6 +36,8 @@ const Notes = (() => {
         if (child.nodeType !== Node.ELEMENT_NODE) { child.remove(); continue; }
         const tag = child.tagName;
         if (DROP.includes(tag)) { child.remove(); continue; }
+        // Imagem só vale se apontar para um print guardado pela agenda.
+        if (tag === 'IMG' && !/^[a-z0-9]+$/.test(child.getAttribute('data-img') || '')) { child.remove(); continue; }
         walk(child);
         if (!ALLOWED[tag]) { child.replaceWith(...child.childNodes); continue; }
         for (const attr of [...child.attributes]) {
@@ -72,16 +75,24 @@ const Notes = (() => {
     return body ? `${lead}${marker}${body}${marker}${trail}` : text;
   }
 
+  // Imagens disponíveis na conversão atual ({ id: dataURL }).
+  let mdImages = {};
+
   function inlineMd(node) {
     return [...node.childNodes].map((n) => {
       if (n.nodeType === Node.TEXT_NODE) return escapeMd(n.textContent.replace(/\s+/g, ' '));
       if (n.nodeType !== Node.ELEMENT_NODE) return '';
       const tag = n.tagName;
       if (tag === 'BR') return '  \n';
+      if (tag === 'IMG') {
+        const src = mdImages[n.getAttribute('data-img')];
+        return src ? `![print](${src})` : '';
+      }
       if (tag === 'UL' || tag === 'OL') return '';
       const inner = inlineMd(n);
       if (tag === 'B' || tag === 'STRONG') return wrap(inner, '**');
       if (tag === 'I' || tag === 'EM') return wrap(inner, '*');
+      if (tag === 'MARK') return inner.trim() ? `<mark>${inner}</mark>` : inner;
       return inner;
     }).join('');
   }
@@ -121,7 +132,8 @@ const Notes = (() => {
     return [line(rows[0]), `| ${Array(cols).fill('---').join(' | ')} |`, ...rows.slice(1).map(line)].join('\n');
   }
 
-  function htmlToMarkdown(html) {
+  function htmlToMarkdown(html, images) {
+    if (images) mdImages = images;
     const doc = new DOMParser().parseFromString(`<div>${sanitizeHtml(html)}</div>`, 'text/html');
     const blocks = [];
     let loose = '';
@@ -155,13 +167,14 @@ const Notes = (() => {
   }
 
   // Arquivo completo: título, dados da anotação e o texto.
-  function noteToMarkdown(note, { project, event } = {}) {
+  function noteToMarkdown(note, { project, event, images = {} } = {}) {
     const meta = [];
     if (project) meta.push(`Projeto: ${project}`);
     if (event) meta.push(`Reunião: ${event}`);
     const parts = [`# ${escapeMd(note.title || 'Sem título')}`];
     if (meta.length) parts.push(`> ${escapeMd(meta.join(' · '))}`);
-    const body = htmlToMarkdown(note.html);
+    const body = htmlToMarkdown(note.html, images);
+    mdImages = {};
     if (body) parts.push(body);
     return `${parts.join('\n\n')}\n`;
   }
