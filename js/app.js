@@ -749,6 +749,15 @@
         ${tool('insertUnorderedList', '• Lista', 'Lista com marcadores')}
         ${tool('insertOrderedList', '1. Lista', 'Lista numerada')}
         ${tool('checklist', '☑ Caixas', 'Lista com caixas de seleção')}
+        <span class="sep"></span>
+        ${tool('table', '▦ Tabela', 'Inserir tabela')}
+        <span class="table-tools" role="group" aria-label="Editar tabela">
+          ${tool('row-add', '+ Linha', 'Adicionar linha abaixo')}
+          ${tool('col-add', '+ Coluna', 'Adicionar coluna à direita')}
+          ${tool('row-del', '− Linha', 'Remover esta linha')}
+          ${tool('col-del', '− Coluna', 'Remover esta coluna')}
+          ${tool('table-del', '✕ Tabela', 'Excluir a tabela')}
+        </span>
       </div>
       <div class="note-body" id="noteBody" contenteditable="true" role="textbox" aria-multiline="true" aria-label="Texto da anotação" data-placeholder="Escreva aqui…"></div>
       <p class="note-status" id="noteStatus">Salvo automaticamente · editada ${esc(noteUpdatedLabel(note.updatedAt).toLowerCase())}</p>`;
@@ -759,6 +768,7 @@
     const body = $('#noteBody');
     if (!note || !body) return;
     body.innerHTML = Notes.sanitizeHtml(note.html);
+    document.execCommand('defaultParagraphSeparator', false, 'p'); // Enter cria parágrafos, não <div>
     fillProjectSelect($('#noteProject'), note.projectId, 'Sem projeto', { allowNew: true });
   }
 
@@ -894,12 +904,133 @@
     return li && $('#noteBody').contains(li) ? li : null;
   }
 
+  // ----- Tabelas -----
+
+  function selectionCell() {
+    const sel = window.getSelection();
+    const node = sel && sel.anchorNode;
+    const el = node && (node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement);
+    const cell = el && el.closest('td, th');
+    return cell && $('#noteBody')?.contains(cell) ? cell : null;
+  }
+
+  function placeCaret(cell) {
+    const range = document.createRange();
+    range.selectNodeContents(cell);
+    range.collapse(false);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+  }
+
+  const emptyCell = (tag) => {
+    const cell = document.createElement(tag);
+    cell.innerHTML = '<br>';
+    return cell;
+  };
+
+  // Mostra os botões de linha/coluna só com o cursor dentro de uma tabela.
+  function updateTableTools() {
+    $('.note-toolbar')?.classList.toggle('in-table', !!selectionCell());
+  }
+
+  function insertTable(cols = 3, bodyRows = 2) {
+    const head = `<tr>${'<th><br></th>'.repeat(cols)}</tr>`;
+    const row = `<tr>${'<td><br></td>'.repeat(cols)}</tr>`;
+    const before = new Set($$('#noteBody table'));
+    document.execCommand('insertHTML', false,
+      `<table><thead>${head}</thead><tbody>${row.repeat(bodyRows)}</tbody></table><p><br></p>`);
+    const table = $$('#noteBody table').find((t) => !before.has(t));
+    const first = table?.querySelector('th');
+    if (first) placeCaret(first);
+  }
+
+  function addRow(cell, focus = true) {
+    const tr = cell.closest('tr');
+    const table = tr.closest('table');
+    const cols = tr.children.length;
+    const row = document.createElement('tr');
+    for (let i = 0; i < cols; i++) row.append(emptyCell('td'));
+    if (tr.parentElement.tagName === 'THEAD') {
+      let tbody = table.querySelector('tbody');
+      if (!tbody) { tbody = document.createElement('tbody'); table.append(tbody); }
+      tbody.prepend(row);
+    } else {
+      tr.after(row);
+    }
+    if (focus) placeCaret(row.children[Math.min(cell.cellIndex, cols - 1)]);
+    return row;
+  }
+
+  function addColumn(cell) {
+    const index = cell.cellIndex;
+    for (const tr of cell.closest('table').rows) {
+      const ref = tr.children[index];
+      const tag = tr.parentElement.tagName === 'THEAD' ? 'th' : 'td';
+      if (ref) ref.after(emptyCell(tag));
+      else tr.append(emptyCell(tag));
+    }
+    placeCaret(cell.closest('tr').children[index + 1]);
+  }
+
+  function removeRow(cell) {
+    const tr = cell.closest('tr');
+    const table = tr.closest('table');
+    if (tr.parentElement.tagName === 'THEAD') return toast('A linha de cabeçalho não pode ser removida. Use "✕ Tabela" para excluir a tabela.');
+    const bodyRows = table.querySelectorAll('tbody tr');
+    if (bodyRows.length <= 1) return toast('A tabela precisa de pelo menos uma linha.');
+    const next = tr.nextElementSibling || tr.previousElementSibling;
+    const index = cell.cellIndex;
+    tr.remove();
+    placeCaret(next.children[Math.min(index, next.children.length - 1)]);
+  }
+
+  function removeColumn(cell) {
+    const table = cell.closest('table');
+    const index = cell.cellIndex;
+    if (cell.closest('tr').children.length <= 1) return toast('A tabela precisa de pelo menos uma coluna.');
+    const tr = cell.closest('tr');
+    for (const row of table.rows) row.children[index]?.remove();
+    placeCaret(tr.children[Math.max(0, index - 1)]);
+  }
+
+  function removeTable(cell) {
+    const table = cell.closest('table');
+    const after = table.nextElementSibling;
+    table.remove();
+    if (after) placeCaret(after);
+  }
+
+  // Tab vai para a próxima célula; na última, cria uma linha nova.
+  function onTableTab(e, cell) {
+    e.preventDefault();
+    const cells = [...cell.closest('table').querySelectorAll('th, td')];
+    const i = cells.indexOf(cell);
+    if (e.shiftKey) {
+      if (i > 0) placeCaret(cells[i - 1]);
+    } else if (i < cells.length - 1) {
+      placeCaret(cells[i + 1]);
+    } else {
+      const row = addRow(cell, false);
+      placeCaret(row.children[0]);
+      scheduleNoteSave();
+    }
+  }
+
   function applyNoteCommand(cmd) {
     const body = $('#noteBody');
     if (!body) return;
     body.focus();
     document.execCommand('defaultParagraphSeparator', false, 'p');
-    if (cmd === 'heading') {
+    const tableOps = { 'row-add': addRow, 'col-add': addColumn, 'row-del': removeRow, 'col-del': removeColumn, 'table-del': removeTable };
+    if (cmd === 'table') {
+      if (selectionCell()) return toast('Não dá para colocar uma tabela dentro de outra.');
+      insertTable();
+    } else if (tableOps[cmd]) {
+      const cell = selectionCell();
+      if (!cell) return toast('Clique numa célula da tabela primeiro.');
+      tableOps[cmd](cell);
+    } else if (cmd === 'heading') {
       const current = String(document.queryCommandValue('formatBlock')).toLowerCase();
       document.execCommand('formatBlock', false, current === 'h2' ? 'p' : 'h2');
     } else if (cmd === 'checklist') {
@@ -921,6 +1052,7 @@
       document.execCommand(cmd);
     }
     scheduleNoteSave();
+    updateTableTools();
   }
 
   function onNoteBodyClick(e) {
@@ -933,6 +1065,8 @@
   }
 
   function onNoteBodyKey(e) {
+    const cell = e.key === 'Tab' && selectionCell();
+    if (cell) return onTableTab(e, cell);
     if (e.key === 'Enter' && selectionLi()?.parentElement.matches('ul.checklist')) {
       // Item novo começa desmarcado (o navegador copia os atributos do anterior).
       setTimeout(() => {
@@ -1645,6 +1779,7 @@
     });
     view.addEventListener('paste', (e) => { if (e.target.closest('#noteBody')) onNoteBodyPaste(e); });
     window.addEventListener('beforeunload', flushNoteSave);
+    document.addEventListener('selectionchange', () => { if (state.view === 'notes') updateTableTools(); });
     view.addEventListener('keydown', (e) => {
       if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('[role="button"]')) {
         e.preventDefault();

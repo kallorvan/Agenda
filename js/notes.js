@@ -22,6 +22,7 @@ const Notes = (() => {
   const ALLOWED = {
     P: [], DIV: [], BR: [], B: [], STRONG: [], I: [], EM: [], U: [],
     H2: [], H3: [], UL: ['class'], OL: [], LI: ['data-checked'], SPAN: [],
+    TABLE: [], THEAD: [], TBODY: [], TR: [], TH: [], TD: [],
   };
   const DROP = ['SCRIPT', 'STYLE', 'IFRAME', 'OBJECT', 'EMBED', 'IMG', 'SVG', 'TEMPLATE', 'LINK', 'META', 'VIDEO', 'AUDIO'];
 
@@ -53,7 +54,10 @@ const Notes = (() => {
   function toText(html) {
     const doc = new DOMParser().parseFromString(`<div>${html || ''}</div>`, 'text/html');
     const root = doc.body.firstElementChild;
-    root.querySelectorAll('p, div, h2, h3, li, br').forEach((el) => el.append(' '));
+    root.querySelectorAll('p, div, h2, h3, ul, ol, li, br, table, td, th').forEach((el) => {
+      el.before(' ');
+      el.append(' ');
+    });
     return root.textContent.replace(/\s+/g, ' ').trim();
   }
 
@@ -100,6 +104,23 @@ const Notes = (() => {
     return lines;
   }
 
+  // Texto de uma célula numa linha só, com "|" escapado.
+  function cellMd(cell) {
+    const text = [...cell.childNodes]
+      .map((n) => (n.nodeType === Node.ELEMENT_NODE && ['P', 'DIV'].includes(n.tagName) ? `${inlineMd(n)} ` : inlineMd({ childNodes: [n] })))
+      .join('');
+    return text.replace(/\s+/g, ' ').trim().replace(/\|/g, '\\|');
+  }
+
+  // Tabela no formato do GitHub: a primeira linha vira o cabeçalho.
+  function tableMd(table) {
+    const rows = [...table.querySelectorAll('tr')].map((tr) => [...tr.children].map(cellMd));
+    if (!rows.length) return '';
+    const cols = Math.max(...rows.map((r) => r.length));
+    const line = (cells) => `| ${Array.from({ length: cols }, (_, i) => cells[i] || ' ').join(' | ')} |`;
+    return [line(rows[0]), `| ${Array(cols).fill('---').join(' | ')} |`, ...rows.slice(1).map(line)].join('\n');
+  }
+
   function htmlToMarkdown(html) {
     const doc = new DOMParser().parseFromString(`<div>${sanitizeHtml(html)}</div>`, 'text/html');
     const blocks = [];
@@ -117,9 +138,12 @@ const Notes = (() => {
       } else if (tag === 'UL' || tag === 'OL') {
         flush();
         blocks.push(listMd(node, 0).join('\n'));
+      } else if (tag === 'TABLE') {
+        flush();
+        blocks.push(tableMd(node));
       } else if (tag === 'P' || tag === 'DIV') {
         flush();
-        const sub = [...node.children].some((c) => ['UL', 'OL', 'H2', 'H3', 'P', 'DIV'].includes(c.tagName));
+        const sub = [...node.children].some((c) => ['UL', 'OL', 'H2', 'H3', 'P', 'DIV', 'TABLE'].includes(c.tagName));
         if (sub) blocks.push(htmlToMarkdown(node.innerHTML));
         else if (inlineMd(node).trim()) blocks.push(inlineMd(node).trim());
       } else {
