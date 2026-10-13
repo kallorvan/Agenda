@@ -97,3 +97,12 @@ test('compromissos não concluídos: só os que já terminaram, depois do cadast
   assert.deepEqual(missed, ['2026-10-13', '2026-10-10']);
   assert.equal(S.missedOccurrences([later], now, 7).length, 0, 'ainda não aconteceu');
 });
+
+test('compromisso único cadastrado com data passada gera aviso', () => {
+  const now = new Date(2026, 9, 13, 12, 0); // cadastrado e consultado em 13/10
+  const single = ev({ id: 's', date: '2026-10-10', start: '09:00', end: '10:00', createdAt: now.getTime() });
+  assert.deepEqual(S.missedOccurrences([single], now, 7).map((o) => o.date), ['2026-10-10']);
+  // mais antigo que 7 dias não aparece
+  const old = ev({ id: 'o', date: '2026-10-01', start: '09:00', end: '10:00', createdAt: now.getTime() });
+  assert.equal(S.missedOccurrences([old], now, 7).length, 0);
+});
