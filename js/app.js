@@ -11,6 +11,7 @@
   ];
   const WEEKDAYS = [[1, 'Seg'], [2, 'Ter'], [3, 'Qua'], [4, 'Qui'], [5, 'Sex'], [6, 'Sáb'], [0, 'Dom']];
   const NOTIFIED_KEY = 'agenda.notified';
+  const MISSED_DAYS = 7; // até quantos dias atrás o quadro avisa compromissos não concluídos
   const NOTIFY_DISMISSED_KEY = 'agenda.notifyDismissed';
 
   const $ = (sel, root = document) => root.querySelector(sel);
@@ -175,7 +176,9 @@
   function updateTitle() {
     const now = new Date();
     const overdue = data().tasks.filter((t) => Schedule.taskStatus(t, now) === 'overdue').length;
-    document.title = overdue ? `(${overdue}) Agenda` : 'Agenda';
+    const missed = Schedule.missedOccurrences(data().events, now, MISSED_DAYS).length;
+    const total = overdue + missed;
+    document.title = total ? `(${total}) Agenda` : 'Agenda';
   }
 
   // Rola a linha do tempo até a hora atual ao abrir um dia ou semana.
@@ -220,7 +223,8 @@
       const height = Math.max(((e - s) / 60) * HOUR_PX, 18);
       const past = occ.date < today || (occ.date === today && U.toMin(occ.end) <= nowMin);
       const size = height < 36 ? 'short' : height < 60 ? 'compact' : '';
-      const classes = ['event-block', size, past ? 'past' : '', occ.done ? 'done' : ''].join(' ');
+      const missed = Schedule.isMissed(occ, now) && occ.date >= U.addDays(today, -MISSED_DAYS);
+      const classes = ['event-block', size, past ? 'past' : '', occ.done ? 'done' : '', missed ? 'missed' : ''].join(' ');
       return `<div role="button" tabindex="0" class="${classes}" data-action="open-event" data-id="${esc(ev.id)}" data-date="${occ.date}"
           style="top:${top}px;height:${height}px;left:calc(${(col / cols) * 100}% + 2px);width:calc(${100 / cols}% - 4px);--c:${esc(projectColor(ev.projectId))}"
           title="${esc(`${occ.start}–${occ.end} ${ev.title}${occ.done ? ' (concluído)' : ''}`)}">
@@ -371,6 +375,7 @@
       .filter((o) => !o.done && (o.date > today || o.start > nowHM))
       .slice(0, 6);
     const overdue = Schedule.sortTasks(filteredTasks().filter((t) => Schedule.taskStatus(t, now) === 'overdue'), now);
+    const missed = Schedule.missedOccurrences(events, now, MISSED_DAYS);
 
     const occItem = (o, extra = '') => {
       const ev = o.event;
@@ -392,6 +397,22 @@
     return `<aside class="side-panel">
       ${happening.length ? `<section class="panel side-section now">
         <h2>Acontecendo agora</h2><ul class="side-list">${happening.map((o) => occItem(o, 'is-now')).join('')}</ul>
+      </section>` : ''}
+
+      ${missed.length ? `<section class="panel side-section missed-section">
+        <div class="side-head">
+          <h2>Não concluídos <span class="count warn">${missed.length}</span></h2>
+          ${missed.length > 1 ? '<button type="button" class="btn ghost small" data-action="complete-all-missed" title="Marcar todos como concluídos">Concluir todos</button>' : ''}
+        </div>
+        <p class="side-hint">Compromissos que já terminaram e não foram marcados como concluídos.</p>
+        <ul class="side-list">${missed.map((o) => `<li class="side-item missed" style="--c:${esc(projectColor(o.event.projectId))}">
+            ${eventCheck(o)}
+            <button type="button" class="side-body" data-action="open-event" data-id="${esc(o.event.id)}" data-date="${o.date}">
+              <span class="side-when">${U.relativeDay(o.date)} · ${o.start}–${o.end}</span>
+              <span class="side-title">${esc(o.event.title)}</span>
+            </button>
+            <button type="button" class="btn ghost small" data-action="dismiss-event" data-id="${esc(o.event.id)}" data-date="${o.date}" title="Tirar do aviso sem marcar como concluído (ex.: não aconteceu)">Ignorar</button>
+          </li>`).join('')}</ul>
       </section>` : ''}
 
       <section class="panel side-section ${overdue.length ? 'has-overdue' : ''}">
@@ -549,6 +570,42 @@
     }
   }
 
+  // Tira um compromisso do aviso de "não concluídos" sem marcá-lo como concluído.
+  function dismissEvent(id, date) {
+    const ev = data().events.find((x) => x.id === id);
+    if (!ev || !date) return;
+    saveAndRender('events', { ...ev, dismissed: [...(ev.dismissed || []), date] });
+    toast(`Aviso ignorado: ${ev.title}`, {
+      action: 'Desfazer',
+      onAction: () => {
+        const current = data().events.find((x) => x.id === id);
+        if (current) saveAndRender('events', { ...current, dismissed: (current.dismissed || []).filter((d) => d !== date) });
+      },
+    });
+  }
+
+  function completeAllMissed() {
+    const missed = Schedule.missedOccurrences(filteredEvents(), new Date(), MISSED_DAYS);
+    if (!missed.length) return;
+    const byEvent = new Map();
+    for (const o of missed) byEvent.set(o.event.id, [...(byEvent.get(o.event.id) || []), o.date]);
+    for (const [id, dates] of byEvent) {
+      const ev = data().events.find((x) => x.id === id);
+      Store.upsert('events', { ...ev, completed: [...(ev.completed || []), ...dates] });
+    }
+    render();
+    toast(`${missed.length} compromissos marcados como concluídos.`, {
+      action: 'Desfazer',
+      onAction: () => {
+        for (const [id, dates] of byEvent) {
+          const ev = data().events.find((x) => x.id === id);
+          if (ev) Store.upsert('events', { ...ev, completed: (ev.completed || []).filter((d) => !dates.includes(d)) });
+        }
+        render();
+      },
+    });
+  }
+
   // Marca um item da lista. Marcar o último conclui a tarefa; desmarcar reabre.
   function toggleItem(taskId, itemId, done) {
     const task = data().tasks.find((t) => t.id === taskId);
@@ -612,6 +669,8 @@
       case 'new-event': return openEventDialog(null, date);
       case 'toggle-task': return toggleTask(id, el.checked);
       case 'toggle-event-done': return toggleEventDone(id, date);
+      case 'dismiss-event': return dismissEvent(id, date);
+      case 'complete-all-missed': return completeAllMissed();
       case 'toggle-item': return toggleItem(id, el.dataset.item, el.checked);
       case 'expand-task':
         if (state.expanded.has(id)) state.expanded.delete(id);
@@ -744,11 +803,23 @@
       <div class="note-toolbar" role="toolbar" aria-label="Formatação">
         ${tool('bold', '<b>B</b>', 'Negrito (Ctrl+B)')}
         ${tool('italic', '<i>I</i>', 'Itálico (Ctrl+I)')}
+        ${tool('highlight', '<mark>Marcar</mark>', 'Marca-texto: destaca o texto selecionado (clique de novo para tirar)')}
         ${tool('heading', 'Título', 'Título de seção')}
         <span class="sep"></span>
         ${tool('insertUnorderedList', '• Lista', 'Lista com marcadores')}
         ${tool('insertOrderedList', '1. Lista', 'Lista numerada')}
         ${tool('checklist', '☑ Caixas', 'Lista com caixas de seleção')}
+        <span class="sep"></span>
+        ${tool('table', '▦ Tabela', 'Inserir tabela')}
+        ${tool('image', '🖼 Imagem', 'Inserir imagem (ou cole um print com Ctrl+V)')}
+        <input type="file" id="noteImageInput" accept="image/*" multiple hidden>
+        <span class="table-tools" role="group" aria-label="Editar tabela">
+          ${tool('row-add', '+ Linha', 'Adicionar linha abaixo')}
+          ${tool('col-add', '+ Coluna', 'Adicionar coluna à direita')}
+          ${tool('row-del', '− Linha', 'Remover esta linha')}
+          ${tool('col-del', '− Coluna', 'Remover esta coluna')}
+          ${tool('table-del', '✕ Tabela', 'Excluir a tabela')}
+        </span>
       </div>
       <div class="note-body" id="noteBody" contenteditable="true" role="textbox" aria-multiline="true" aria-label="Texto da anotação" data-placeholder="Escreva aqui…"></div>
       <p class="note-status" id="noteStatus">Salvo automaticamente · editada ${esc(noteUpdatedLabel(note.updatedAt).toLowerCase())}</p>`;
@@ -759,6 +830,8 @@
     const body = $('#noteBody');
     if (!note || !body) return;
     body.innerHTML = Notes.sanitizeHtml(note.html);
+    loadNoteImages(body);
+    document.execCommand('defaultParagraphSeparator', false, 'p'); // Enter cria parágrafos, não <div>
     fillProjectSelect($('#noteProject'), note.projectId, 'Sem projeto', { allowNew: true });
   }
 
@@ -797,7 +870,7 @@
   // Anotação criada e deixada em branco não fica ocupando a lista.
   function discardIfEmpty(id) {
     const note = findNote(id);
-    if (note && !note.title && !note.text && !note.eventId && !/data-checked/.test(note.html || '')) {
+    if (note && !note.title && !note.text && !note.eventId && !/data-checked|data-img|<table/.test(note.html || '')) {
       Store.remove('notes', id);
     }
   }
@@ -894,12 +967,139 @@
     return li && $('#noteBody').contains(li) ? li : null;
   }
 
+  // ----- Tabelas -----
+
+  function selectionCell() {
+    const sel = window.getSelection();
+    const node = sel && sel.anchorNode;
+    const el = node && (node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement);
+    const cell = el && el.closest('td, th');
+    return cell && $('#noteBody')?.contains(cell) ? cell : null;
+  }
+
+  function placeCaret(cell) {
+    const range = document.createRange();
+    range.selectNodeContents(cell);
+    range.collapse(false);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+  }
+
+  const emptyCell = (tag) => {
+    const cell = document.createElement(tag);
+    cell.innerHTML = '<br>';
+    return cell;
+  };
+
+  // Mostra os botões de linha/coluna só com o cursor dentro de uma tabela.
+  function updateTableTools() {
+    $('.note-toolbar')?.classList.toggle('in-table', !!selectionCell());
+  }
+
+  function insertTable(cols = 3, bodyRows = 2) {
+    const head = `<tr>${'<th><br></th>'.repeat(cols)}</tr>`;
+    const row = `<tr>${'<td><br></td>'.repeat(cols)}</tr>`;
+    const before = new Set($$('#noteBody table'));
+    document.execCommand('insertHTML', false,
+      `<table><thead>${head}</thead><tbody>${row.repeat(bodyRows)}</tbody></table><p><br></p>`);
+    const table = $$('#noteBody table').find((t) => !before.has(t));
+    const first = table?.querySelector('th');
+    if (first) placeCaret(first);
+  }
+
+  function addRow(cell, focus = true) {
+    const tr = cell.closest('tr');
+    const table = tr.closest('table');
+    const cols = tr.children.length;
+    const row = document.createElement('tr');
+    for (let i = 0; i < cols; i++) row.append(emptyCell('td'));
+    if (tr.parentElement.tagName === 'THEAD') {
+      let tbody = table.querySelector('tbody');
+      if (!tbody) { tbody = document.createElement('tbody'); table.append(tbody); }
+      tbody.prepend(row);
+    } else {
+      tr.after(row);
+    }
+    if (focus) placeCaret(row.children[Math.min(cell.cellIndex, cols - 1)]);
+    return row;
+  }
+
+  function addColumn(cell) {
+    const index = cell.cellIndex;
+    for (const tr of cell.closest('table').rows) {
+      const ref = tr.children[index];
+      const tag = tr.parentElement.tagName === 'THEAD' ? 'th' : 'td';
+      if (ref) ref.after(emptyCell(tag));
+      else tr.append(emptyCell(tag));
+    }
+    placeCaret(cell.closest('tr').children[index + 1]);
+  }
+
+  function removeRow(cell) {
+    const tr = cell.closest('tr');
+    const table = tr.closest('table');
+    if (tr.parentElement.tagName === 'THEAD') return toast('A linha de cabeçalho não pode ser removida. Use "✕ Tabela" para excluir a tabela.');
+    const bodyRows = table.querySelectorAll('tbody tr');
+    if (bodyRows.length <= 1) return toast('A tabela precisa de pelo menos uma linha.');
+    const next = tr.nextElementSibling || tr.previousElementSibling;
+    const index = cell.cellIndex;
+    tr.remove();
+    placeCaret(next.children[Math.min(index, next.children.length - 1)]);
+  }
+
+  function removeColumn(cell) {
+    const table = cell.closest('table');
+    const index = cell.cellIndex;
+    if (cell.closest('tr').children.length <= 1) return toast('A tabela precisa de pelo menos uma coluna.');
+    const tr = cell.closest('tr');
+    for (const row of table.rows) row.children[index]?.remove();
+    placeCaret(tr.children[Math.max(0, index - 1)]);
+  }
+
+  function removeTable(cell) {
+    const table = cell.closest('table');
+    const after = table.nextElementSibling;
+    table.remove();
+    if (after) placeCaret(after);
+  }
+
+  // Tab vai para a próxima célula; na última, cria uma linha nova.
+  function onTableTab(e, cell) {
+    e.preventDefault();
+    const cells = [...cell.closest('table').querySelectorAll('th, td')];
+    const i = cells.indexOf(cell);
+    if (e.shiftKey) {
+      if (i > 0) placeCaret(cells[i - 1]);
+    } else if (i < cells.length - 1) {
+      placeCaret(cells[i + 1]);
+    } else {
+      const row = addRow(cell, false);
+      placeCaret(row.children[0]);
+      scheduleNoteSave();
+    }
+  }
+
   function applyNoteCommand(cmd) {
     const body = $('#noteBody');
     if (!body) return;
     body.focus();
     document.execCommand('defaultParagraphSeparator', false, 'p');
-    if (cmd === 'heading') {
+    const tableOps = { 'row-add': addRow, 'col-add': addColumn, 'row-del': removeRow, 'col-del': removeColumn, 'table-del': removeTable };
+    if (cmd === 'highlight') {
+      toggleHighlight();
+    } else if (cmd === 'image') {
+      rememberSelection();
+      $('#noteImageInput')?.click();
+      return;
+    } else if (cmd === 'table') {
+      if (selectionCell()) return toast('Não dá para colocar uma tabela dentro de outra.');
+      insertTable();
+    } else if (tableOps[cmd]) {
+      const cell = selectionCell();
+      if (!cell) return toast('Clique numa célula da tabela primeiro.');
+      tableOps[cmd](cell);
+    } else if (cmd === 'heading') {
       const current = String(document.queryCommandValue('formatBlock')).toLowerCase();
       document.execCommand('formatBlock', false, current === 'h2' ? 'p' : 'h2');
     } else if (cmd === 'checklist') {
@@ -921,6 +1121,7 @@
       document.execCommand(cmd);
     }
     scheduleNoteSave();
+    updateTableTools();
   }
 
   function onNoteBodyClick(e) {
@@ -933,6 +1134,8 @@
   }
 
   function onNoteBodyKey(e) {
+    const cell = e.key === 'Tab' && selectionCell();
+    if (cell) return onTableTab(e, cell);
     if (e.key === 'Enter' && selectionLi()?.parentElement.matches('ul.checklist')) {
       // Item novo começa desmarcado (o navegador copia os atributos do anterior).
       setTimeout(() => {
@@ -943,10 +1146,128 @@
   }
 
   function onNoteBodyPaste(e) {
-    // Cola só o texto, sem a formatação de outros programas.
     e.preventDefault();
+    // Print (Win+Shift+S, PrtScn…) ou imagem copiada: entra como imagem.
+    const files = [...(e.clipboardData?.items || [])]
+      .filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
+      .map((item) => item.getAsFile())
+      .filter(Boolean);
+    if (files.length) return insertImages(files);
+    // Texto entra sem a formatação de outros programas.
     const text = e.clipboardData?.getData('text/plain') || '';
     document.execCommand('insertText', false, text);
+  }
+
+  function onNoteBodyDrop(e) {
+    const files = [...(e.dataTransfer?.files || [])].filter((f) => f.type.startsWith('image/'));
+    if (!files.length) return;
+    e.preventDefault();
+    const range = document.caretRangeFromPoint?.(e.clientX, e.clientY);
+    if (range) {
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
+    insertImages(files);
+  }
+
+  // ----- Marca-texto -----
+
+  // Destaca a seleção em amarelo; se ela já tiver destaque, remove.
+  function toggleHighlight() {
+    const body = $('#noteBody');
+    const sel = window.getSelection();
+    if (!sel.rangeCount) return;
+    const range = sel.getRangeAt(0);
+    const anchorMark = (sel.anchorNode?.nodeType === Node.ELEMENT_NODE ? sel.anchorNode : sel.anchorNode?.parentElement)?.closest('mark');
+    const marks = $$('mark', body).filter((m) => range.intersectsNode(m) || m === anchorMark);
+    if (marks.length) {
+      marks.forEach((m) => m.replaceWith(...m.childNodes));
+      body.normalize();
+    } else if (range.collapsed) {
+      return toast('Selecione o texto que quer destacar.');
+    } else {
+      // O navegador aplica o fundo em trechos de vários parágrafos; depois viram <mark>.
+      document.execCommand('styleWithCSS', false, true);
+      document.execCommand('hiliteColor', false, 'rgb(255, 236, 61)');
+      document.execCommand('styleWithCSS', false, false);
+      for (const el of $$('[style]', body)) {
+        if (!el.style.backgroundColor) { el.removeAttribute('style'); continue; }
+        const mark = document.createElement('mark');
+        if (el.tagName === 'SPAN') {
+          mark.append(...el.childNodes);
+          el.replaceWith(mark);
+        } else {
+          mark.append(...el.childNodes);
+          el.append(mark);
+          el.removeAttribute('style');
+        }
+      }
+    }
+    scheduleNoteSave();
+  }
+
+  // ----- Imagens -----
+
+  let savedRange = null;
+
+  function rememberSelection() {
+    const sel = window.getSelection();
+    savedRange = sel.rangeCount && $('#noteBody')?.contains(sel.anchorNode) ? sel.getRangeAt(0).cloneRange() : null;
+  }
+
+  function restoreSelection() {
+    const body = $('#noteBody');
+    const sel = window.getSelection();
+    body.focus();
+    if (savedRange && body.contains(savedRange.startContainer)) {
+      sel.removeAllRanges();
+      sel.addRange(savedRange);
+    } else if (!body.contains(sel.anchorNode)) {
+      const range = document.createRange();
+      range.selectNodeContents(body);
+      range.collapse(false);
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
+    savedRange = null;
+  }
+
+  async function insertImages(files) {
+    const noteId = state.noteId;
+    for (const file of files) {
+      if (file.size > 25 * 1024 * 1024) { toast('Imagem muito grande (máximo 25 MB).', { kind: 'error' }); continue; }
+      let src;
+      const id = U.uid();
+      try {
+        src = await ImageStore.put(id, await ImageStore.compress(file));
+      } catch (err) {
+        console.error(err);
+        toast('Não foi possível guardar a imagem neste navegador.', { kind: 'error' });
+        return;
+      }
+      if (state.noteId !== noteId || !$('#noteBody')) return; // trocou de anotação enquanto processava
+      restoreSelection();
+      document.execCommand('insertHTML', false, `<img data-img="${id}" src="${src}" alt="Imagem colada"><p><br></p>`);
+      rememberSelection();
+    }
+    savedRange = null;
+    scheduleNoteSave();
+  }
+
+  async function loadNoteImages(root) {
+    for (const img of $$('img[data-img]', root)) {
+      img.alt = 'Imagem';
+      const src = await ImageStore.url(img.dataset.img).catch(() => null);
+      if (src) img.src = src;
+      else { img.alt = 'Imagem não encontrada'; img.classList.add('missing'); }
+    }
+  }
+
+  async function onImageInputChange(e) {
+    const files = [...e.target.files].filter((f) => f.type.startsWith('image/'));
+    e.target.value = '';
+    if (files.length) await insertImages(files);
   }
 
   // ---------- Diálogos ----------
@@ -1387,12 +1708,14 @@
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
-  function exportNoteMarkdown() {
+  async function exportNoteMarkdown() {
     flushNoteSave();
     const note = findNote(state.noteId);
     if (!note) return;
     const ev = note.eventId && data().events.find((e) => e.id === note.eventId);
+    const images = await ImageStore.exportAll(ImageStore.idsIn(note.html)).catch(() => ({}));
     const md = Notes.noteToMarkdown(note, {
+      images,
       project: projectOf(note.projectId)?.name,
       event: ev ? `${ev.title}, ${U.fromKey(note.eventDate).toLocaleDateString('pt-BR')} ${ev.start}–${ev.end}` : null,
     });
@@ -1401,8 +1724,11 @@
     toast(`Arquivo salvo: ${name}`);
   }
 
-  function exportBackup() {
-    downloadFile(`agenda-backup-${U.todayKey()}.json`, Store.exportJSON(), 'application/json');
+  const allImageIds = () => data().notes.flatMap((n) => ImageStore.idsIn(n.html));
+
+  async function exportBackup() {
+    const images = await ImageStore.exportAll(allImageIds()).catch(() => ({}));
+    downloadFile(`agenda-backup-${U.todayKey()}.json`, Store.exportJSON({ images }), 'application/json');
     Store.setSettings({ lastBackup: Date.now() });
     if ($('#settingsDialog').open) $('#lastBackupInfo').textContent = 'Último backup: agora.';
     render();
@@ -1424,6 +1750,12 @@
     ]);
     if (!choice) return;
     Store.importJSON(text);
+    try {
+      await ImageStore.importAll(JSON.parse(text).images);
+    } catch (err) {
+      console.error(err);
+      toast('Algumas imagens do backup não puderam ser restauradas.', { kind: 'error' });
+    }
     state.project = '';
     $('#settingsDialog').close();
     render();
@@ -1611,6 +1943,8 @@
   // ---------- Inicialização ----------
 
   function init() {
+    // Imagens de anotações já excluídas não ocupam espaço.
+    if (!Store.loadFailed) ImageStore.cleanup(allImageIds()).catch(() => {});
     $$('.segmented [data-view]').forEach((b) => b.addEventListener('click', () => goto(b.dataset.view)));
     $('#prevBtn').addEventListener('click', () => navigate(-1));
     $('#nextBtn').addEventListener('click', () => navigate(1));
@@ -1644,7 +1978,10 @@
       if (e.target.id === 'noteTitle' && e.key === 'Enter') { e.preventDefault(); $('#noteBody').focus(); }
     });
     view.addEventListener('paste', (e) => { if (e.target.closest('#noteBody')) onNoteBodyPaste(e); });
+    view.addEventListener('drop', (e) => { if (e.target.closest('#noteBody')) onNoteBodyDrop(e); });
+    view.addEventListener('change', (e) => { if (e.target.id === 'noteImageInput') onImageInputChange(e); });
     window.addEventListener('beforeunload', flushNoteSave);
+    document.addEventListener('selectionchange', () => { if (state.view === 'notes') updateTableTools(); });
     view.addEventListener('keydown', (e) => {
       if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('[role="button"]')) {
         e.preventDefault();

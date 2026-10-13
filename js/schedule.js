@@ -35,11 +35,30 @@ const Schedule = (() => {
           out.push({
             event: ev, date: key, start: ev.start, end: ev.end, key: `${ev.id}|${key}`,
             done: (ev.completed || []).includes(key),
+            dismissed: (ev.dismissed || []).includes(key),
           });
         }
       }
     }
     return out.sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start));
+  }
+
+  // Compromisso que já terminou e não foi marcado como concluído nem ignorado.
+  // Ocorrências de antes do cadastro (repetições "retroativas") não contam.
+  function isMissed(occ, now = new Date()) {
+    if (occ.done || occ.dismissed) return false;
+    const today = Utils.toKey(now);
+    const ended = occ.date < today || (occ.date === today && occ.end <= Utils.nowTime(now));
+    const created = occ.event.createdAt ? Utils.toKey(new Date(occ.event.createdAt)) : '';
+    return ended && occ.date >= created;
+  }
+
+  // Não concluídos dos últimos `days` dias, do mais recente para o mais antigo.
+  function missedOccurrences(events, now = new Date(), days = 7) {
+    const today = Utils.toKey(now);
+    return occurrencesBetween(events, Utils.addDays(today, -days), today)
+      .filter((o) => isMissed(o, now))
+      .reverse();
   }
 
   // 'done' | 'overdue' | 'today' | 'future' | 'nodate'
@@ -122,7 +141,7 @@ const Schedule = (() => {
     return out.map(({ occ, col, cols }) => ({ occ, col, cols }));
   }
 
-  return { occursOn, occurrencesBetween, taskStatus, sortTasks, itemProgress, parseItems, layout };
+  return { occursOn, occurrencesBetween, isMissed, missedOccurrences, taskStatus, sortTasks, itemProgress, parseItems, layout };
 })();
 
 if (typeof module !== 'undefined') module.exports = Schedule;
