@@ -85,3 +85,15 @@ test('ocorrência concluída é marcada só na data certa', () => {
   const occ = S.occurrencesBetween([e], '2026-10-01', '2026-10-03');
   assert.deepEqual(occ.map((o) => [o.date, o.done]), [['2026-10-01', false], ['2026-10-02', true], ['2026-10-03', false]]);
 });
+
+test('compromissos não concluídos: só os que já terminaram, depois do cadastro', () => {
+  const now = new Date(2026, 9, 13, 12, 0); // 13/10 12:00
+  const created = new Date(2026, 9, 10, 8, 0).getTime(); // cadastrado em 10/10
+  const daily = ev({ id: 'd', date: '2026-10-01', start: '09:00', end: '10:00', repeat: { type: 'daily' },
+    createdAt: created, completed: ['2026-10-11'], dismissed: ['2026-10-12'] });
+  const later = ev({ id: 'l', date: '2026-10-13', start: '15:00', end: '16:00', createdAt: created });
+  const missed = S.missedOccurrences([daily, later], now, 7).map((o) => o.date);
+  // 10/10 (cadastro) e 13/10 (já terminou às 10h); 11 concluído, 12 ignorado; antes de 10/10 não conta
+  assert.deepEqual(missed, ['2026-10-13', '2026-10-10']);
+  assert.equal(S.missedOccurrences([later], now, 7).length, 0, 'ainda não aconteceu');
+});

@@ -11,6 +11,7 @@
   ];
   const WEEKDAYS = [[1, 'Seg'], [2, 'Ter'], [3, 'Qua'], [4, 'Qui'], [5, 'Sex'], [6, 'Sáb'], [0, 'Dom']];
   const NOTIFIED_KEY = 'agenda.notified';
+  const MISSED_DAYS = 7; // até quantos dias atrás o quadro avisa compromissos não concluídos
   const NOTIFY_DISMISSED_KEY = 'agenda.notifyDismissed';
 
   const $ = (sel, root = document) => root.querySelector(sel);
@@ -175,7 +176,9 @@
   function updateTitle() {
     const now = new Date();
     const overdue = data().tasks.filter((t) => Schedule.taskStatus(t, now) === 'overdue').length;
-    document.title = overdue ? `(${overdue}) Agenda` : 'Agenda';
+    const missed = Schedule.missedOccurrences(data().events, now, MISSED_DAYS).length;
+    const total = overdue + missed;
+    document.title = total ? `(${total}) Agenda` : 'Agenda';
   }
 
   // Rola a linha do tempo até a hora atual ao abrir um dia ou semana.
@@ -220,7 +223,8 @@
       const height = Math.max(((e - s) / 60) * HOUR_PX, 18);
       const past = occ.date < today || (occ.date === today && U.toMin(occ.end) <= nowMin);
       const size = height < 36 ? 'short' : height < 60 ? 'compact' : '';
-      const classes = ['event-block', size, past ? 'past' : '', occ.done ? 'done' : ''].join(' ');
+      const missed = Schedule.isMissed(occ, now) && occ.date >= U.addDays(today, -MISSED_DAYS);
+      const classes = ['event-block', size, past ? 'past' : '', occ.done ? 'done' : '', missed ? 'missed' : ''].join(' ');
       return `<div role="button" tabindex="0" class="${classes}" data-action="open-event" data-id="${esc(ev.id)}" data-date="${occ.date}"
           style="top:${top}px;height:${height}px;left:calc(${(col / cols) * 100}% + 2px);width:calc(${100 / cols}% - 4px);--c:${esc(projectColor(ev.projectId))}"
           title="${esc(`${occ.start}–${occ.end} ${ev.title}${occ.done ? ' (concluído)' : ''}`)}">
@@ -371,6 +375,7 @@
       .filter((o) => !o.done && (o.date > today || o.start > nowHM))
       .slice(0, 6);
     const overdue = Schedule.sortTasks(filteredTasks().filter((t) => Schedule.taskStatus(t, now) === 'overdue'), now);
+    const missed = Schedule.missedOccurrences(events, now, MISSED_DAYS);
 
     const occItem = (o, extra = '') => {
       const ev = o.event;
@@ -392,6 +397,22 @@
     return `<aside class="side-panel">
       ${happening.length ? `<section class="panel side-section now">
         <h2>Acontecendo agora</h2><ul class="side-list">${happening.map((o) => occItem(o, 'is-now')).join('')}</ul>
+      </section>` : ''}
+
+      ${missed.length ? `<section class="panel side-section missed-section">
+        <div class="side-head">
+          <h2>Não concluídos <span class="count warn">${missed.length}</span></h2>
+          ${missed.length > 1 ? '<button type="button" class="btn ghost small" data-action="complete-all-missed" title="Marcar todos como concluídos">Concluir todos</button>' : ''}
+        </div>
+        <p class="side-hint">Compromissos que já terminaram e não foram marcados como concluídos.</p>
+        <ul class="side-list">${missed.map((o) => `<li class="side-item missed" style="--c:${esc(projectColor(o.event.projectId))}">
+            ${eventCheck(o)}
+            <button type="button" class="side-body" data-action="open-event" data-id="${esc(o.event.id)}" data-date="${o.date}">
+              <span class="side-when">${U.relativeDay(o.date)} · ${o.start}–${o.end}</span>
+              <span class="side-title">${esc(o.event.title)}</span>
+            </button>
+            <button type="button" class="btn ghost small" data-action="dismiss-event" data-id="${esc(o.event.id)}" data-date="${o.date}" title="Tirar do aviso sem marcar como concluído (ex.: não aconteceu)">Ignorar</button>
+          </li>`).join('')}</ul>
       </section>` : ''}
 
       <section class="panel side-section ${overdue.length ? 'has-overdue' : ''}">
@@ -549,6 +570,42 @@
     }
   }
 
+  // Tira um compromisso do aviso de "não concluídos" sem marcá-lo como concluído.
+  function dismissEvent(id, date) {
+    const ev = data().events.find((x) => x.id === id);
+    if (!ev || !date) return;
+    saveAndRender('events', { ...ev, dismissed: [...(ev.dismissed || []), date] });
+    toast(`Aviso ignorado: ${ev.title}`, {
+      action: 'Desfazer',
+      onAction: () => {
+        const current = data().events.find((x) => x.id === id);
+        if (current) saveAndRender('events', { ...current, dismissed: (current.dismissed || []).filter((d) => d !== date) });
+      },
+    });
+  }
+
+  function completeAllMissed() {
+    const missed = Schedule.missedOccurrences(filteredEvents(), new Date(), MISSED_DAYS);
+    if (!missed.length) return;
+    const byEvent = new Map();
+    for (const o of missed) byEvent.set(o.event.id, [...(byEvent.get(o.event.id) || []), o.date]);
+    for (const [id, dates] of byEvent) {
+      const ev = data().events.find((x) => x.id === id);
+      Store.upsert('events', { ...ev, completed: [...(ev.completed || []), ...dates] });
+    }
+    render();
+    toast(`${missed.length} compromissos marcados como concluídos.`, {
+      action: 'Desfazer',
+      onAction: () => {
+        for (const [id, dates] of byEvent) {
+          const ev = data().events.find((x) => x.id === id);
+          if (ev) Store.upsert('events', { ...ev, completed: (ev.completed || []).filter((d) => !dates.includes(d)) });
+        }
+        render();
+      },
+    });
+  }
+
   // Marca um item da lista. Marcar o último conclui a tarefa; desmarcar reabre.
   function toggleItem(taskId, itemId, done) {
     const task = data().tasks.find((t) => t.id === taskId);
@@ -612,6 +669,8 @@
       case 'new-event': return openEventDialog(null, date);
       case 'toggle-task': return toggleTask(id, el.checked);
       case 'toggle-event-done': return toggleEventDone(id, date);
+      case 'dismiss-event': return dismissEvent(id, date);
+      case 'complete-all-missed': return completeAllMissed();
       case 'toggle-item': return toggleItem(id, el.dataset.item, el.checked);
       case 'expand-task':
         if (state.expanded.has(id)) state.expanded.delete(id);
