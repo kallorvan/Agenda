@@ -44,13 +44,16 @@ const Schedule = (() => {
   }
 
   // Compromisso que já terminou e não foi marcado como concluído nem ignorado.
-  // Ocorrências de antes do cadastro (repetições "retroativas") não contam.
+  // Em compromissos que se repetem, as repetições de antes do cadastro não contam
+  // (ex.: reunião diária cadastrada hoje com início no dia 1º).
   function isMissed(occ, now = new Date()) {
     if (occ.done || occ.dismissed) return false;
     const today = Utils.toKey(now);
     const ended = occ.date < today || (occ.date === today && occ.end <= Utils.nowTime(now));
+    if (!ended) return false;
+    const recurring = occ.event.repeat?.type && occ.event.repeat.type !== 'none';
     const created = occ.event.createdAt ? Utils.toKey(new Date(occ.event.createdAt)) : '';
-    return ended && occ.date >= created;
+    return !recurring || occ.date >= created;
   }
 
   // Não concluídos dos últimos `days` dias, do mais recente para o mais antigo.

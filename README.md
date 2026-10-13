@@ -15,7 +15,7 @@ Funciona direto no navegador, sem instalar nada e sem login.
   ou pela opção "Concluído" ao abri-lo. Em compromissos que se repetem, vale só para aquele dia.
   Concluídos ficam riscados, saem de "Próximos" e não geram lembrete.
   Compromissos que **já terminaram sem ser marcados** aparecem no quadro **Não concluídos**
-  (últimos 7 dias), com destaque laranja na linha do tempo e no contador da aba do navegador.
+  (últimos 7 dias; em compromissos que se repetem, só a partir do dia do cadastro), com destaque laranja na linha do tempo e no contador da aba do navegador.
   Dá para concluir um a um, **Concluir todos**, ou **Ignorar** (ex.: a reunião não aconteceu).
 - **Tarefas**: prioridade Alta/Média/Baixa, prazo opcional (com hora, se quiser) e projeto.
   A ordem é automática: atrasadas primeiro, depois as de maior prioridade e prazo mais próximo.
