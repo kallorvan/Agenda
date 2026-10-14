@@ -7,7 +7,7 @@
   <meta name="description" content="Agenda de trabalho com compromissos, tarefas priorizadas e lembretes.">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='3' y='5' width='26' height='24' rx='5' fill='%232f6fed'/%3E%3Crect x='3' y='5' width='26' height='7' rx='3' fill='%231d4fc4'/%3E%3Cpath d='M10 19l4 4 8-9' stroke='white' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
   <!-- Versão publicada: manter igual a version.json e aos "?v=" abaixo (o teste confere). -->
-  <meta name="app-version" content="11">
+  <meta name="app-version" content="12">
   <script>
     // O GitHub Pages deixa os arquivos guardados no navegador por alguns minutos.
     // Ao abrir, consulta a versão publicada sem cache e, se houver uma mais nova,
@@ -34,30 +34,32 @@
         .catch(function () {});
     })();
   </script>
-  <link rel="stylesheet" href="styles.css?v=11">
+  <link rel="stylesheet" href="styles.css?v=12">
 </head>
 <body>
   <header class="topbar">
+    <button type="button" class="icon-btn" id="sidebarToggle" aria-label="Mostrar ou esconder o menu lateral" title="Menu lateral">
+      <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </button>
     <div class="brand">Agenda</div>
 
-    <nav class="segmented" aria-label="Visualização">
-      <button type="button" data-view="day">Dia</button>
-      <button type="button" data-view="week">Semana</button>
-      <button type="button" data-view="month">Mês</button>
-      <button type="button" data-view="notes" title="Caderno de anotações (A)">Notas</button>
-    </nav>
-
     <div class="date-nav">
-      <button type="button" class="icon-btn" id="prevBtn" aria-label="Anterior" title="Anterior (←)">‹</button>
       <button type="button" class="btn" id="todayBtn" title="Ir para hoje (T)">Hoje</button>
+      <button type="button" class="icon-btn" id="prevBtn" aria-label="Anterior" title="Anterior (←)">‹</button>
       <button type="button" class="icon-btn" id="nextBtn" aria-label="Próximo" title="Próximo (→)">›</button>
       <h1 id="periodLabel"></h1>
     </div>
 
     <div class="topbar-actions">
-      <select id="projectFilter" aria-label="Filtrar por projeto"></select>
-      <button type="button" class="btn" id="newTaskBtn" title="Nova tarefa (N)">+ Tarefa</button>
-      <button type="button" class="btn primary" id="newEventBtn" title="Novo compromisso (C)">+ Compromisso</button>
+      <nav class="segmented" aria-label="Visualização">
+        <button type="button" data-view="day" title="Dia (D)">Dia</button>
+        <button type="button" data-view="week" title="Semana (S)">Semana</button>
+        <button type="button" data-view="month" title="Mês (M)">Mês</button>
+        <button type="button" data-view="notes" title="Caderno de anotações (A)">Notas</button>
+      </nav>
+      <button type="button" class="icon-btn" id="panelToggle" aria-label="Mostrar ou esconder o painel de tarefas e avisos" title="Tarefas e avisos">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/></svg>
+      </button>
       <button type="button" class="icon-btn" id="settingsBtn" aria-label="Configurações" title="Configurações">
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
       </button>
@@ -70,7 +72,28 @@
     <button type="button" class="btn ghost small" id="dismissNotifyBtn">Agora não</button>
   </div>
 
-  <main id="view"></main>
+  <div class="app" id="app">
+    <aside class="sidebar" id="sidebar" aria-label="Menu lateral">
+      <div class="create-wrap">
+        <button type="button" class="create-btn" id="createBtn" aria-haspopup="menu" aria-expanded="false" title="Criar">
+          <span class="plus" aria-hidden="true">＋</span><span class="create-label">Criar</span>
+        </button>
+        <div class="create-menu" id="createMenu" role="menu" hidden>
+          <button type="button" role="menuitem" id="newEventBtn" data-create="event">🗓 Compromisso <kbd>C</kbd></button>
+          <button type="button" role="menuitem" id="newTaskBtn" data-create="task">☑ Tarefa <kbd>N</kbd></button>
+          <button type="button" role="menuitem" id="newNoteBtn" data-create="note">📝 Anotação</button>
+        </div>
+      </div>
+      <div class="mini-cal" id="miniCal"></div>
+      <div class="projects-box" id="projectsBox"></div>
+    </aside>
+
+    <main id="view"></main>
+
+    <aside class="right-panel side-panel" id="rightPanel" aria-label="Tarefas e avisos"></aside>
+  </div>
+
+  <div class="popover" id="popover" role="dialog" aria-modal="false" hidden></div>
 
   <div class="toasts" id="toasts" aria-live="polite"></div>
 
@@ -233,11 +256,11 @@
     </form>
   </dialog>
 
-  <script src="js/utils.js?v=11"></script>
-  <script src="js/schedule.js?v=11"></script>
-  <script src="js/notes.js?v=11"></script>
-  <script src="js/images.js?v=11"></script>
-  <script src="js/store.js?v=11"></script>
-  <script src="js/app.js?v=11"></script>
+  <script src="js/utils.js?v=12"></script>
+  <script src="js/schedule.js?v=12"></script>
+  <script src="js/notes.js?v=12"></script>
+  <script src="js/images.js?v=12"></script>
+  <script src="js/store.js?v=12"></script>
+  <script src="js/app.js?v=12"></script>
 </body>
 </html>

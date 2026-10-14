@@ -13,6 +13,8 @@
   const NOTIFIED_KEY = 'agenda.notified';
   const MISSED_DAYS = 7; // até quantos dias atrás o quadro avisa compromissos não concluídos
   const NOTIFY_DISMISSED_KEY = 'agenda.notifyDismissed';
+  const HIDDEN_PROJECTS_KEY = 'agenda.hiddenProjects';
+  const LAYOUT_KEY = 'agenda.layout';
 
   const $ = (sel, root = document) => root.querySelector(sel);
   const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
@@ -21,8 +23,11 @@
   const settings = () => Store.data.settings;
 
   const state = {
-    view: 'day', date: U.todayKey(), taskTab: 'day', project: '', expanded: new Set(),
+    view: 'week', date: U.todayKey(), taskTab: 'day', expanded: new Set(),
     noteId: null, noteQuery: '',
+    miniMonth: null, // mês do calendário pequeno (null = acompanha a data exibida)
+    hidden: new Set(), // projetos escondidos ('' = sem projeto)
+    layout: { sidebar: true, panel: true },
   };
   let lastScrollKey = null;
   let lastMinute = U.nowTime();
@@ -31,7 +36,30 @@
 
   const projectOf = (id) => data().projects.find((p) => p.id === id);
   const projectColor = (id) => projectOf(id)?.color || 'var(--accent)';
-  const matchesFilter = (item) => !state.project || item.projectId === state.project;
+  const projectKey = (id) => (id && projectOf(id) ? id : '');
+  const matchesFilter = (item) => !state.hidden.has(projectKey(item.projectId));
+
+  // Garante que o projeto de um item aberto esteja visível.
+  function revealProject(id) {
+    if (state.hidden.delete(projectKey(id))) saveHidden();
+  }
+
+  function saveHidden() {
+    safeStorage(() => localStorage.setItem(HIDDEN_PROJECTS_KEY, JSON.stringify([...state.hidden])));
+  }
+
+  function saveLayout() {
+    safeStorage(() => localStorage.setItem(LAYOUT_KEY, JSON.stringify(state.layout)));
+  }
+
+  // Cor do texto sobre o bloco colorido: escuro em cores claras, branco nas demais.
+  function textOn(color) {
+    const m = /^#([0-9a-f]{6})$/i.exec(color || '');
+    if (!m) return '#fff';
+    const n = parseInt(m[1], 16);
+    const [r, g, b] = [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+    return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.62 ? '#1a2030' : '#fff';
+  }
   const filteredEvents = () => data().events.filter(matchesFilter);
   const filteredTasks = () => data().tasks.filter(matchesFilter);
 
@@ -92,7 +120,7 @@
         toast(`Projeto criado: ${name}`);
       }
       fillProjectSelect(select, project.id, select.dataset.empty, { allowNew: true });
-      fillProjectSelect($('#projectFilter'), state.project, 'Todos os projetos');
+      renderSidebar();
       closeProjectCreator();
       select.dispatchEvent(new Event('change', { bubbles: true }));
       select.focus();
@@ -141,18 +169,30 @@
 
   function render() {
     flushNoteSave();
+    closePopover();
     $$('.segmented [data-view]').forEach((b) => b.classList.toggle('active', b.dataset.view === state.view));
     $('#periodLabel').textContent = periodLabel();
     ['#prevBtn', '#nextBtn', '#todayBtn'].forEach((sel) => ($(sel).hidden = state.view === 'notes'));
-    fillProjectSelect($('#projectFilter'), state.project, 'Todos os projetos');
-    state.project = $('#projectFilter').value;
+
+    const app = $('#app');
+    app.classList.toggle('notes-mode', state.view === 'notes');
+    app.classList.toggle('sidebar-collapsed', !state.layout.sidebar);
+    app.classList.toggle('panel-collapsed', !state.layout.panel);
+    $('#panelToggle').classList.toggle('active', state.layout.panel);
+    $('#panelToggle').hidden = state.view === 'notes';
+    $('#sidebarToggle').hidden = state.view === 'notes';
 
     const view = $('#view');
     view.className = `view-${state.view}`;
-    if (state.view === 'day') view.innerHTML = renderDay();
+    if (state.view === 'day') view.innerHTML = renderGrid([state.date]);
     else if (state.view === 'week') view.innerHTML = renderWeek();
     else if (state.view === 'notes') { view.innerHTML = renderNotes(); mountNoteEditor(); }
     else view.innerHTML = renderMonth();
+
+    if (state.view !== 'notes') {
+      renderSidebar();
+      $('#rightPanel').innerHTML = renderRightPanel();
+    }
 
     autoScroll();
     updateTitle();
@@ -226,7 +266,7 @@
       const missed = Schedule.isMissed(occ, now) && occ.date >= U.addDays(today, -MISSED_DAYS);
       const classes = ['event-block', size, past ? 'past' : '', occ.done ? 'done' : '', missed ? 'missed' : ''].join(' ');
       return `<div role="button" tabindex="0" class="${classes}" data-action="open-event" data-id="${esc(ev.id)}" data-date="${occ.date}"
-          style="top:${top}px;height:${height}px;left:calc(${(col / cols) * 100}% + 2px);width:calc(${100 / cols}% - 4px);--c:${esc(projectColor(ev.projectId))}"
+          style="top:${top}px;height:${height}px;left:calc(${(col / cols) * 100}% + 1px);width:calc(${100 / cols}% - 3px);--c:${esc(projectColor(ev.projectId))};--fg:${textOn(projectColor(ev.projectId))}"
           title="${esc(`${occ.start}–${occ.end} ${ev.title}${occ.done ? ' (concluído)' : ''}`)}">
           ${eventCheck(occ)}
           <span class="ev-title">${esc(ev.title)}</span>
@@ -252,29 +292,64 @@
     const outside = occs.filter((o) => !isVisible(o));
     if (!outside.length) return '';
     return `<div class="outside-note">Fora do horário exibido:
-      ${outside.map((o) => `<button type="button" class="link-btn" data-action="open-event" data-id="${esc(o.event.id)}" data-date="${o.date}">${state.view === 'week' ? U.weekdayShort(o.date) + ' ' : ''}${o.start} ${esc(o.event.title)}</button>`).join(' · ')}
+      ${outside.map((o) => `<button type="button" class="link-btn" data-action="open-event" data-id="${esc(o.event.id)}" data-date="${o.date}">${state.view !== 'day' ? U.weekdayShort(o.date) + ' ' : ''}${o.start} ${esc(o.event.title)}</button>`).join(' · ')}
     </div>`;
   }
 
-  // ----- Dia -----
+  // ----- Barra lateral: calendário pequeno e projetos -----
 
-  function renderDay() {
-    const key = state.date;
-    const occs = Schedule.occurrencesBetween(filteredEvents(), key, key);
-    return `<div class="day-layout">
-      <section class="panel timeline-panel">
-        <div class="panel-head">
-          <h2>Compromissos <span class="count">${occs.length}</span></h2>
-          <button type="button" class="btn small" data-action="new-event" data-date="${key}">+ Novo</button>
-        </div>
-        ${outsideNote(occs)}
-        <div class="timeline-scroll">
-          <div class="timeline" style="--n:1">${hourLabels()}${renderTrack(key, occs)}</div>
-        </div>
-      </section>
-      ${renderTasksPanel(key)}
-      ${renderSidePanel()}
-    </div>`;
+  function renderSidebar() {
+    $('#miniCal').innerHTML = renderMiniCal();
+    $('#projectsBox').innerHTML = renderProjectsBox();
+  }
+
+  function renderMiniCal() {
+    const month = state.miniMonth || U.addMonths(state.date, 0);
+    const start = U.weekStart(month);
+    const end = U.addDays(start, 41);
+    const today = U.todayKey();
+    const busy = new Set(Schedule.occurrencesBetween(filteredEvents(), start, end).map((o) => o.date));
+    const label = U.monthYear(month);
+    const m = U.fromKey(month).getMonth();
+    let cells = '';
+    for (let i = 0; i < 42; i++) {
+      const d = U.addDays(start, i);
+      const cls = [
+        'mini-day',
+        U.fromKey(d).getMonth() !== m ? 'other' : '',
+        d === today ? 'is-today' : '',
+        d === state.date ? 'is-selected' : '',
+        busy.has(d) ? 'busy' : '',
+      ].join(' ');
+      cells += `<button type="button" class="${cls}" data-action="mini-day" data-date="${d}" aria-label="${esc(U.longDate(d))}">${U.fromKey(d).getDate()}</button>`;
+    }
+    return `<div class="mini-head">
+        <span class="mini-label">${esc(label.charAt(0).toUpperCase() + label.slice(1))}</span>
+        <button type="button" class="icon-btn small" data-action="mini-nav" data-dir="-1" aria-label="Mês anterior">‹</button>
+        <button type="button" class="icon-btn small" data-action="mini-nav" data-dir="1" aria-label="Próximo mês">›</button>
+      </div>
+      <div class="mini-grid">${['S', 'T', 'Q', 'Q', 'S', 'S', 'D'].map((l) => `<span class="mini-wd">${l}</span>`).join('')}${cells}</div>`;
+  }
+
+  function renderProjectsBox() {
+    const row = (id, name, color) => `<li><label class="project-toggle" style="--c:${esc(color)}">
+        <input type="checkbox" data-action="toggle-project" data-pid="${esc(id)}" ${state.hidden.has(id) ? '' : 'checked'}>
+        <span class="box" aria-hidden="true"></span><span class="name">${esc(name)}</span></label></li>`;
+    return `<div class="projects-head">
+        <h3>Meus projetos</h3>
+        <button type="button" class="icon-btn small" data-action="manage-projects" title="Criar ou editar projetos" aria-label="Criar ou editar projetos">＋</button>
+      </div>
+      <ul class="project-filter">
+        ${data().projects.map((p) => row(p.id, p.name, p.color)).join('')}
+        ${row('', 'Sem projeto', '#8a94a6')}
+      </ul>`;
+  }
+
+  // ----- Painel direito: avisos e tarefas -----
+
+  function renderRightPanel() {
+    const key = state.view === 'day' ? state.date : U.todayKey();
+    return renderSidePanel(renderTasksPanel(key));
   }
 
   function renderTasksPanel(key) {
@@ -364,7 +439,7 @@
     </li>`;
   }
 
-  function renderSidePanel() {
+  function renderSidePanel(tasksHtml = '') {
     const now = new Date();
     const today = U.todayKey();
     const nowHM = U.nowTime(now);
@@ -394,7 +469,7 @@
     const hasData = data().events.length + data().tasks.length + data().notes.length > 0;
     const backupDue = hasData && (!lastBackup || Date.now() - lastBackup > 7 * 86400000);
 
-    return `<aside class="side-panel">
+    return `
       ${happening.length ? `<section class="panel side-section now">
         <h2>Acontecendo agora</h2><ul class="side-list">${happening.map((o) => occItem(o, 'is-now')).join('')}</ul>
       </section>` : ''}
@@ -415,6 +490,8 @@
           </li>`).join('')}</ul>
       </section>` : ''}
 
+      ${tasksHtml}
+
       <section class="panel side-section ${overdue.length ? 'has-overdue' : ''}">
         <h2>Atrasadas <span class="count ${overdue.length ? 'danger' : ''}">${overdue.length}</span></h2>
         ${overdue.length ? `<ul class="side-list">${overdue.map((t) => `<li class="side-item overdue">
@@ -434,8 +511,7 @@
       ${backupDue ? `<section class="panel side-section backup-hint">
         <p>${lastBackup ? 'Seu último backup tem mais de 7 dias.' : 'Você ainda não fez nenhum backup.'} Os dados ficam só neste navegador.</p>
         <button type="button" class="btn small" data-action="export">Exportar backup agora</button>
-      </section>` : ''}
-    </aside>`;
+      </section>` : ''}`;
   }
 
   // ----- Semana -----
@@ -443,7 +519,12 @@
   function renderWeek() {
     const start = U.weekStart(state.date);
     const n = settings().showWeekend ? 7 : 5;
-    const days = Array.from({ length: n }, (_, i) => U.addDays(start, i));
+    return renderGrid(Array.from({ length: n }, (_, i) => U.addDays(start, i)));
+  }
+
+  // Grade de horários para um ou mais dias (Dia = 1 coluna, Semana = 5 ou 7).
+  function renderGrid(days) {
+    const n = days.length;
     const today = U.todayKey();
     const now = new Date();
     const occs = Schedule.occurrencesBetween(filteredEvents(), days[0], days[n - 1]);
@@ -522,7 +603,7 @@
   function goto(view, date) {
     if (state.view === 'notes' && view !== 'notes') { flushNoteSave(); discardIfEmpty(state.noteId); }
     state.view = view;
-    if (date) state.date = date;
+    if (date) { state.date = date; state.miniMonth = null; }
     render();
   }
 
@@ -531,6 +612,7 @@
     if (state.view === 'day') state.date = U.addDays(state.date, dir);
     else if (state.view === 'week') state.date = U.addDays(state.date, dir * 7);
     else state.date = U.addMonths(state.date, dir);
+    state.miniMonth = null;
     render();
   }
 
@@ -664,7 +746,22 @@
     }
     const { action, id, date } = el.dataset;
     switch (action) {
-      case 'open-event': return openEventDialog(id, date);
+      case 'open-event': return openEventPopover(id, date, el);
+      case 'mini-day':
+        state.date = date;
+        state.miniMonth = null;
+        return render();
+      case 'mini-nav':
+        state.miniMonth = U.addMonths(state.miniMonth || state.date, Number(el.dataset.dir));
+        return renderSidebar();
+      case 'toggle-project': {
+        const pid = el.dataset.pid;
+        if (el.checked) state.hidden.delete(pid);
+        else state.hidden.add(pid);
+        saveHidden();
+        return render();
+      }
+      case 'manage-projects': return openSettings();
       case 'open-task': return openTaskDialog(id);
       case 'new-event': return openEventDialog(null, date);
       case 'toggle-task': return toggleTask(id, el.checked);
@@ -688,12 +785,12 @@
     }
   }
 
-  // Clique em um horário vazio cria um compromisso naquele horário.
+  // Clique em um horário vazio abre o cadastro rápido naquele horário.
   function newEventAt(track, e) {
     const rect = track.getBoundingClientRect();
     const minutes = settings().dayStart * 60 + ((e.clientY - rect.top) / HOUR_PX) * 60;
     const start = Math.min(Math.floor(minutes / 30) * 30, 23 * 60);
-    openEventDialog(null, track.dataset.date, U.fromMin(start));
+    openQuickCreate(track.dataset.date, U.fromMin(start), { x: e.clientX, y: e.clientY });
   }
 
   function onViewSubmit(e) {
@@ -708,7 +805,7 @@
       priority: form.priority.value,
       dueDate: state.taskTab === 'day' ? state.date : null,
       dueTime: null,
-      projectId: state.project || null,
+      projectId: null,
       notes: '',
       done: false,
       doneAt: null,
@@ -716,6 +813,164 @@
     });
     render();
     $('.quick-add input[name="title"]')?.focus();
+  }
+
+  // ---------- Cartão rápido e cadastro rápido ----------
+
+  function toggleCreateMenu(open) {
+    const menu = $('#createMenu');
+    const show = open ?? menu.hidden;
+    menu.hidden = !show;
+    $('#createBtn').setAttribute('aria-expanded', String(show));
+    if (show) menu.querySelector('button')?.focus();
+  }
+
+  function closePopover() {
+    const pop = $('#popover');
+    if (!pop || pop.hidden) return;
+    pop.hidden = true;
+    pop.innerHTML = '';
+    $$('.event-block.selected').forEach((b) => b.classList.remove('selected'));
+  }
+
+  // Posiciona o cartão ao lado do elemento clicado (ou do ponto clicado), sem sair da tela.
+  function placePopover(pop, rect) {
+    pop.hidden = false;
+    const w = pop.offsetWidth;
+    const h = pop.offsetHeight;
+    const margin = 8;
+    let left = rect.right + margin;
+    if (left + w > window.innerWidth - margin) left = rect.left - w - margin;
+    if (left < margin) left = Math.max(margin, Math.min(window.innerWidth - w - margin, rect.left));
+    let top = rect.top;
+    if (top + h > window.innerHeight - margin) top = window.innerHeight - h - margin;
+    pop.style.left = `${Math.round(left)}px`;
+    pop.style.top = `${Math.round(Math.max(margin, top))}px`;
+  }
+
+  function repeatText(ev) {
+    const r = ev.repeat || {};
+    if (r.type === 'daily') return 'Todo dia';
+    if (r.type === 'monthly') return 'Todo mês';
+    if (r.type === 'weekly') {
+      const names = WEEKDAYS.filter(([v]) => (r.days || []).includes(v)).map(([, l]) => l.toLowerCase());
+      return `Toda semana${names.length ? ` (${names.join(', ')})` : ''}`;
+    }
+    return '';
+  }
+
+  function openEventPopover(id, date, anchor) {
+    const ev = data().events.find((x) => x.id === id);
+    if (!ev) return;
+    closePopover();
+    const pop = $('#popover');
+    const done = (ev.completed || []).includes(date);
+    const occ = { event: ev, date, start: ev.start, end: ev.end, done, dismissed: (ev.dismissed || []).includes(date) };
+    const missed = Schedule.isMissed(occ);
+    const hasNote = data().notes.some((n) => n.eventId === ev.id && n.eventDate === (repeatText(ev) ? date : ev.date));
+    const project = projectOf(ev.projectId);
+    const when = U.longDate(date);
+    const loc = ev.location
+      ? (U.isUrl(ev.location)
+        ? `<p class="pop-row"><span aria-hidden="true">🔗</span><a href="${esc(ev.location.trim())}" target="_blank" rel="noopener noreferrer">Entrar na reunião ↗</a></p>`
+        : `<p class="pop-row"><span aria-hidden="true">📍</span>${esc(ev.location)}</p>`)
+      : '';
+    pop.dataset.id = id;
+    pop.dataset.date = date;
+    pop.className = 'popover event-pop';
+    pop.setAttribute('aria-label', ev.title);
+    pop.innerHTML = `
+      <div class="pop-actions">
+        <button type="button" class="icon-btn small" data-pop="edit" title="Editar" aria-label="Editar">✏️</button>
+        <button type="button" class="icon-btn small" data-pop="delete" title="Excluir" aria-label="Excluir">🗑</button>
+        <button type="button" class="icon-btn small" data-pop="close" title="Fechar" aria-label="Fechar">×</button>
+      </div>
+      <div class="pop-body">
+        <div class="pop-title"><i class="dot" style="--c:${esc(projectColor(ev.projectId))}"></i>
+          <h3 class="${done ? 'is-done' : ''}">${esc(ev.title)}</h3></div>
+        <p class="pop-when">${esc(when.charAt(0).toUpperCase() + when.slice(1))} · ${ev.start}–${ev.end}</p>
+        ${repeatText(ev) ? `<p class="pop-row muted"><span aria-hidden="true">↻</span>${esc(repeatText(ev))}</p>` : ''}
+        ${loc}
+        ${project ? `<p class="pop-row"><span aria-hidden="true">🏷</span>${esc(project.name)}</p>` : ''}
+        ${ev.notes ? `<p class="pop-notes">${esc(ev.notes)}</p>` : ''}
+        ${done ? '<p class="pop-status ok">✓ Concluído</p>' : missed ? '<p class="pop-status warn">Já terminou e não foi marcado como concluído</p>' : ''}
+      </div>
+      <div class="pop-foot">
+        <button type="button" class="btn small ${done ? '' : 'primary'}" data-pop="done">${done ? '↺ Desmarcar' : '✓ Concluir'}</button>
+        <button type="button" class="btn small" data-pop="notes">📝 ${hasNote ? 'Abrir anotações' : 'Anotações'}</button>
+        ${missed ? '<button type="button" class="btn ghost small" data-pop="dismiss" title="Tirar do aviso sem concluir">Ignorar aviso</button>' : ''}
+      </div>`;
+    placePopover(pop, anchor.getBoundingClientRect());
+    anchor.closest('.event-block')?.classList.add('selected');
+    pop.querySelector('[data-pop="done"]').focus();
+  }
+
+  function openQuickCreate(date, start, point) {
+    closePopover();
+    const pop = $('#popover');
+    const end = U.fromMin(Math.min(U.toMin(start) + 60, 23 * 60 + 59));
+    const when = U.longDate(date);
+    pop.className = 'popover quick-pop';
+    pop.setAttribute('aria-label', 'Novo compromisso');
+    pop.dataset.date = date;
+    pop.dataset.start = start;
+    pop.dataset.end = end;
+    pop.innerHTML = `
+      <form class="quick-create" data-form="quick-event">
+        <div class="pop-actions"><button type="button" class="icon-btn small" data-pop="close" aria-label="Fechar">×</button></div>
+        <input name="title" class="quick-title" maxlength="200" autocomplete="off" placeholder="Adicionar título" aria-label="Título do compromisso">
+        <p class="pop-when">${esc(when.charAt(0).toUpperCase() + when.slice(1))} · ${start}–${end}</p>
+        <p class="form-error" hidden></p>
+        <div class="pop-foot">
+          <button type="button" class="btn ghost small" data-pop="more">Mais opções</button>
+          <span class="spacer"></span>
+          <button type="submit" class="btn primary small">Salvar</button>
+        </div>
+      </form>`;
+    placePopover(pop, { left: point.x, right: point.x, top: point.y - 20, bottom: point.y });
+    pop.querySelector('.quick-title').focus();
+  }
+
+  function onQuickCreateSubmit(e) {
+    e.preventDefault();
+    const pop = $('#popover');
+    const title = pop.querySelector('.quick-title')?.value.trim();
+    if (!title) {
+      showError(pop.querySelector('.form-error'), 'Informe um título.');
+      return pop.querySelector('.quick-title').focus();
+    }
+    const { date, start, end } = pop.dataset;
+    closePopover();
+    saveAndRender('events', {
+      id: U.uid(), exceptions: [], createdAt: Date.now(),
+      title, date, start, end, location: '', projectId: null,
+      reminder: settings().defaultReminder, repeat: { type: 'none', days: [], until: null }, notes: '',
+    });
+    toast('Compromisso criado.');
+  }
+
+  function onPopoverClick(e) {
+    const action = e.target.closest('[data-pop]')?.dataset.pop;
+    if (!action) return;
+    const pop = $('#popover');
+    const { id, date } = pop.dataset;
+    const ev = data().events.find((x) => x.id === id);
+    switch (action) {
+      case 'close': return closePopover();
+      case 'edit': closePopover(); return openEventDialog(id, date);
+      case 'delete': return deleteEvent(ev, date);
+      case 'done': closePopover(); return toggleEventDone(id, date);
+      case 'dismiss': closePopover(); return dismissEvent(id, date);
+      case 'notes': return openMeetingNotes(ev, date);
+      case 'more': {
+        const title = pop.querySelector('.quick-title')?.value || '';
+        const start = pop.dataset.start;
+        closePopover();
+        openEventDialog(null, date, start);
+        $('#eventForm').title.value = title;
+        return;
+      }
+    }
   }
 
   // ---------- Caderno de anotações ----------
@@ -880,7 +1135,7 @@
     discardIfEmpty(state.noteId);
     const now = Date.now();
     const note = {
-      id: U.uid(), title: '', html: '', text: '', projectId: state.project || null,
+      id: U.uid(), title: '', html: '', text: '', projectId: null,
       pinned: false, createdAt: now, updatedAt: now, ...fields,
     };
     Store.upsert('notes', note);
@@ -931,14 +1186,14 @@
     });
   }
 
-  // Abre (ou cria) a anotação ligada à ocorrência do compromisso aberto.
-  function openMeetingNotes() {
-    const ev = editingEvent;
+  // Abre (ou cria) a anotação ligada a uma ocorrência do compromisso.
+  function openMeetingNotes(ev = editingEvent, occDate = editingOccurrence) {
     if (!ev) return;
-    const date = ev.repeat?.type !== 'none' && editingOccurrence ? editingOccurrence : ev.date;
-    $('#eventDialog').close();
+    const date = ev.repeat?.type !== 'none' && occDate ? occDate : ev.date;
+    if ($('#eventDialog').open) $('#eventDialog').close();
+    closePopover();
     const existing = data().notes.find((n) => n.eventId === ev.id && n.eventDate === date);
-    if (existing && state.project && existing.projectId !== state.project) state.project = '';
+    revealProject(existing ? existing.projectId : ev.projectId);
     if (existing) {
       flushNoteSave();
       if (state.noteId !== existing.id) discardIfEmpty(state.noteId);
@@ -948,7 +1203,6 @@
       $('#noteBody')?.focus();
       return;
     }
-    if (state.project && ev.projectId !== state.project) state.project = '';
     newNote({
       title: `${ev.title} – ${U.fromKey(date).toLocaleDateString('pt-BR')}`,
       projectId: ev.projectId || null,
@@ -1298,7 +1552,7 @@
     const startTime = start || defaultStartTime(date);
     const values = ev || {
       title: '', date: date || state.date, start: startTime, end: U.fromMin(Math.min(U.toMin(startTime) + 60, 23 * 60 + 59)),
-      location: '', projectId: state.project || null, reminder: settings().defaultReminder,
+      location: '', projectId: null, reminder: settings().defaultReminder,
       repeat: { type: 'none', days: [], until: null }, notes: '',
     };
 
@@ -1410,9 +1664,9 @@
     return checked ? [...previous, occ] : previous;
   }
 
-  async function deleteEvent() {
-    const ev = editingEvent;
+  async function deleteEvent(ev = editingEvent, occDate = editingOccurrence) {
     if (!ev) return;
+    const editingOccurrence = occDate;
     const recurring = ev.repeat?.type && ev.repeat.type !== 'none';
     let choice;
     if (recurring && editingOccurrence) {
@@ -1428,7 +1682,8 @@
       ]);
     }
     if (!choice) return;
-    $('#eventDialog').close();
+    if ($('#eventDialog').open) $('#eventDialog').close();
+    closePopover();
     if (choice === 'one') {
       saveAndRender('events', { ...ev, exceptions: [...(ev.exceptions || []), editingOccurrence] });
     } else {
@@ -1524,8 +1779,8 @@
     const task = id ? data().tasks.find((t) => t.id === id) : null;
     editingTask = task;
     const values = task || {
-      title: '', priority: 'media', dueDate: state.view === 'day' ? state.date : '', dueTime: '',
-      projectId: state.project || null, notes: '', done: false,
+      title: '', priority: 'media', dueDate: state.view === 'notes' ? '' : state.date, dueTime: '',
+      projectId: null, notes: '', done: false,
     };
     $('#taskDialogTitle').textContent = task ? 'Editar tarefa' : 'Nova tarefa';
     form.title.value = values.title;
@@ -1688,7 +1943,8 @@
       defaultReminder: parseReminder(form.defaultReminder.value),
       showWeekend: form.showWeekend.checked,
     });
-    if (state.project && !keep.has(state.project)) state.project = '';
+    for (const pid of [...state.hidden]) if (pid && !keep.has(pid)) state.hidden.delete(pid);
+    saveHidden();
     $('#settingsDialog').close();
     lastScrollKey = null;
     render();
@@ -1756,7 +2012,8 @@
       console.error(err);
       toast('Algumas imagens do backup não puderam ser restauradas.', { kind: 'error' });
     }
-    state.project = '';
+    state.hidden.clear();
+    saveHidden();
     $('#settingsDialog').close();
     render();
     toast('Backup importado com sucesso.');
@@ -1914,14 +2171,19 @@
     const minute = U.nowTime();
     if (minute === lastMinute) return;
     lastMinute = minute;
-    const typing = document.activeElement?.closest('#view input, #view select, #view textarea, #view [contenteditable]');
-    if (!typing && state.view !== 'notes') render();
+    const typing = document.activeElement?.closest('#app input, #app select, #app textarea, #app [contenteditable]');
+    if (!typing && state.view !== 'notes' && $('#popover').hidden && $('#createMenu').hidden) render();
     else updateTitle();
   }
 
   // ---------- Atalhos de teclado ----------
 
   function onKey(e) {
+    if (e.key === 'Escape' && (!$('#popover').hidden || !$('#createMenu').hidden)) {
+      closePopover();
+      toggleCreateMenu(false);
+      return;
+    }
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     if (document.querySelector('dialog[open]')) return;
     if (e.target.closest('input, select, textarea, [contenteditable]')) return;
@@ -1943,20 +2205,51 @@
   // ---------- Inicialização ----------
 
   function init() {
+    state.hidden = new Set(safeStorage(() => JSON.parse(localStorage.getItem(HIDDEN_PROJECTS_KEY) || '[]'), []));
+    state.layout = { ...state.layout, ...safeStorage(() => JSON.parse(localStorage.getItem(LAYOUT_KEY) || '{}'), {}) };
     // Imagens de anotações já excluídas não ocupam espaço.
     if (!Store.loadFailed) ImageStore.cleanup(allImageIds()).catch(() => {});
     $$('.segmented [data-view]').forEach((b) => b.addEventListener('click', () => goto(b.dataset.view)));
     $('#prevBtn').addEventListener('click', () => navigate(-1));
     $('#nextBtn').addEventListener('click', () => navigate(1));
     $('#todayBtn').addEventListener('click', () => goto(state.view, U.todayKey()));
-    $('#projectFilter').addEventListener('change', (e) => { state.project = e.target.value; render(); });
-    $('#newEventBtn').addEventListener('click', () => openEventDialog(null, state.date));
-    $('#newTaskBtn').addEventListener('click', () => openTaskDialog(null));
     $('#settingsBtn').addEventListener('click', openSettings);
+    $('#sidebarToggle').addEventListener('click', () => {
+      state.layout.sidebar = !state.layout.sidebar;
+      saveLayout();
+      render();
+    });
+    $('#panelToggle').addEventListener('click', () => {
+      state.layout.panel = !state.layout.panel;
+      saveLayout();
+      render();
+    });
+    $('#createBtn').addEventListener('click', () => toggleCreateMenu());
+    $('#createMenu').addEventListener('click', (e) => {
+      const kind = e.target.closest('[data-create]')?.dataset.create;
+      if (!kind) return;
+      toggleCreateMenu(false);
+      if (kind === 'event') openEventDialog(null, state.date);
+      else if (kind === 'task') openTaskDialog(null);
+      else newNote();
+    });
+    $('#popover').addEventListener('click', onPopoverClick);
+    $('#popover').addEventListener('submit', onQuickCreateSubmit);
+    document.addEventListener('mousedown', (e) => {
+      if (!$('#popover').hidden && !e.target.closest('#popover, .event-block, [data-action="open-event"]')) closePopover();
+      if (!$('#createMenu').hidden && !e.target.closest('.create-wrap')) toggleCreateMenu(false);
+    });
+    window.addEventListener('resize', closePopover);
+
+    const app = $('#app');
+    app.addEventListener('click', onViewClick);
+    app.addEventListener('submit', onViewSubmit);
+    app.addEventListener('dblclick', (e) => {
+      const block = e.target.closest('.event-block');
+      if (block && !e.target.closest('.ev-check')) { closePopover(); openEventDialog(block.dataset.id, block.dataset.date); }
+    });
 
     const view = $('#view');
-    view.addEventListener('click', onViewClick);
-    view.addEventListener('submit', onViewSubmit);
     view.addEventListener('input', (e) => {
       if (e.target.id === 'noteSearch') { state.noteQuery = e.target.value; refreshNotesList(); }
       else if (e.target.id === 'noteTitle' || e.target.id === 'noteBody') scheduleNoteSave();
@@ -1982,7 +2275,7 @@
     view.addEventListener('change', (e) => { if (e.target.id === 'noteImageInput') onImageInputChange(e); });
     window.addEventListener('beforeunload', flushNoteSave);
     document.addEventListener('selectionchange', () => { if (state.view === 'notes') updateTableTools(); });
-    view.addEventListener('keydown', (e) => {
+    app.addEventListener('keydown', (e) => {
       if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('[role="button"]')) {
         e.preventDefault();
         e.target.click();
@@ -2014,8 +2307,8 @@
         eventForm.dataset.dur = Math.max(U.toMin(eventForm.end.value) - U.toMin(eventForm.start.value), 15);
       }
     });
-    $('#eventDeleteBtn').addEventListener('click', deleteEvent);
-    $('#eventNotesBtn').addEventListener('click', openMeetingNotes);
+    $('#eventDeleteBtn').addEventListener('click', () => deleteEvent());
+    $('#eventNotesBtn').addEventListener('click', () => openMeetingNotes());
 
     $('#taskForm').addEventListener('submit', submitTask);
     $('#taskDeleteBtn').addEventListener('click', deleteTask);

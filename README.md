@@ -5,10 +5,16 @@ Funciona direto no navegador, sem instalar nada e sem login.
 
 ## O que ela faz
 
-- **Dia** (tela inicial): linha do tempo dos compromissos, lista de tarefas já ordenada
-  e um painel com o que está acontecendo agora, as tarefas atrasadas e os próximos compromissos.
-- **Semana** e **Mês**: visão de calendário. Clique num horário vazio para criar um compromisso
-  e num dia para abri-lo.
+- **Layout inspirado no Google Agenda**:
+  - **Barra lateral** (☰ recolhe): botão **＋ Criar** (compromisso, tarefa ou anotação),
+    calendário pequeno do mês (clique num dia para ir até ele) e **Meus projetos** com caixinhas
+    para mostrar ou esconder cada projeto (a escolha fica lembrada).
+  - **Semana** (tela inicial), **Dia** e **Mês**, com compromissos em blocos da cor do projeto.
+  - **Painel direito** (botão ao lado da engrenagem recolhe): acontecendo agora, não concluídos,
+    tarefas, atrasadas e próximos compromissos.
+  - Clique num compromisso para abrir o **cartão rápido** (concluir, anotações, editar, excluir);
+    clique duplo abre direto a janela de edição. Clique num horário vazio para o **cadastro rápido**
+    (digite o título e Enter; "Mais opções" abre a janela completa).
 - **Compromissos**: título, data, horário, local ou link da reunião, projeto, observações,
   lembrete (padrão: 15 minutos antes) e repetição (diária, semanal nos dias escolhidos ou mensal).
   Marque um compromisso como **concluído** pelo círculo no canto do bloco (ou no painel de próximos),
