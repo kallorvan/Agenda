@@ -9,14 +9,17 @@ Funciona direto no navegador, sem instalar nada e sem login.
   - **Barra lateral** (☰ recolhe): botão **＋ Criar** (compromisso, tarefa ou anotação),
     calendário pequeno do mês (clique num dia para ir até ele) e **Meus projetos** com caixinhas
     para mostrar ou esconder cada projeto (a escolha fica lembrada).
-  - **Semana** (tela inicial), **Dia** e **Mês**, com compromissos em blocos da cor do projeto.
+  - **Semana** (tela inicial, de domingo a sábado), **Dia** e **Mês**, com compromissos em blocos da cor
+    do projeto. Nas Configurações dá para começar a semana na segunda e esconder sábado e domingo.
   - **Painel direito** (botão ao lado da engrenagem recolhe): acontecendo agora, não concluídos,
     tarefas, atrasadas e próximos compromissos.
   - Clique num compromisso para abrir o **cartão rápido** (concluir, anotações, editar, excluir);
     clique duplo abre direto a janela de edição. Clique num horário vazio para o **cadastro rápido**
     (digite o título e Enter; "Mais opções" abre a janela completa).
 - **Compromissos**: título, data, horário, local ou link da reunião, projeto, observações,
-  lembrete (padrão: 15 minutos antes) e repetição (diária, semanal nos dias escolhidos ou mensal).
+  lembrete (padrão: 15 minutos antes) e repetição (diária, semanal nos dias escolhidos ou mensal —
+  no mesmo dia do mês, ex.: dia 2, ou num dia da semana à escolha: 1ª, 2ª, 3ª, 4ª ou última
+  segunda-feira, terça-feira… do mês; a janela mostra as próximas datas para conferir).
   Marque um compromisso como **concluído** pelo círculo no canto do bloco (ou no painel de próximos),
   ou pela opção "Concluído" ao abri-lo. Em compromissos que se repetem, vale só para aquele dia.
   Concluídos ficam riscados, saem de "Próximos" e não geram lembrete.
@@ -25,7 +28,8 @@ Funciona direto no navegador, sem instalar nada e sem login.
   Dá para concluir um a um, **Concluir todos**, ou **Ignorar** (ex.: a reunião não aconteceu).
 - **Tarefas**: prioridade Alta/Média/Baixa, prazo opcional (com hora, se quiser) e projeto.
   A ordem é automática: atrasadas primeiro, depois as de maior prioridade e prazo mais próximo.
-  Uma tarefa atrasada fica em vermelho até você concluir ou adiar para o próximo dia útil.
+  Uma tarefa atrasada fica em vermelho até você concluir ou adiar para o dia seguinte
+  (se sábado e domingo estiverem escondidos, o adiamento pula o fim de semana).
 - **Lista de itens nas tarefas** (ex.: lista de compras): digite cada item e aperte Enter, ou cole
   uma lista inteira (cada linha vira um item). Na lista de tarefas, clique na seta para expandir
   e marcar os itens ali mesmo. Ao marcar o último, a tarefa é concluída (dá para desfazer).

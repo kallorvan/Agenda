@@ -9,7 +9,21 @@
     ['15', '15 minutos antes'], ['30', '30 minutos antes'], ['60', '1 hora antes'],
     ['120', '2 horas antes'], ['1440', '1 dia antes'],
   ];
-  const WEEKDAYS = [[1, 'Seg'], [2, 'Ter'], [3, 'Qua'], [4, 'Qui'], [5, 'Sex'], [6, 'Sáb'], [0, 'Dom']];
+  const WEEKDAY_NAMES = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+  const firstDay = () => Number(Store.data.settings.weekStart ?? 0);
+  // Dias da semana na ordem escolhida nas configurações: [[0, 'Dom'], [1, 'Seg'], ...].
+  const weekdays = () => Array.from({ length: 7 }, (_, i) => {
+    const v = (firstDay() + i) % 7;
+    return [v, WEEKDAY_NAMES[v]];
+  });
+  const weekStartOf = (key) => U.weekStart(key, firstDay());
+
+  // Dias exibidos na semana que contém a data (sem sábado e domingo se estiverem ocultos).
+  function weekDays(key) {
+    const start = weekStartOf(key);
+    return Array.from({ length: 7 }, (_, i) => U.addDays(start, i))
+      .filter((d) => Store.data.settings.showWeekend || ![0, 6].includes(U.fromKey(d).getDay()));
+  }
   const NOTIFIED_KEY = 'agenda.notified';
   const MISSED_DAYS = 7; // até quantos dias atrás o quadro avisa compromissos não concluídos
   const NOTIFY_DISMISSED_KEY = 'agenda.notifyDismissed';
@@ -205,8 +219,9 @@
       return label.charAt(0).toUpperCase() + label.slice(1);
     }
     if (state.view === 'week') {
-      const start = U.weekStart(state.date);
-      const end = U.addDays(start, settings().showWeekend ? 6 : 4);
+      const days = weekDays(state.date);
+      const start = days[0];
+      const end = days[days.length - 1];
       return `${U.dayMonthShort(start)} – ${U.dayMonthShort(end)} de ${U.fromKey(end).getFullYear()}`;
     }
     const label = U.monthYear(state.date);
@@ -305,7 +320,7 @@
 
   function renderMiniCal() {
     const month = state.miniMonth || U.addMonths(state.date, 0);
-    const start = U.weekStart(month);
+    const start = weekStartOf(month);
     const end = U.addDays(start, 41);
     const today = U.todayKey();
     const busy = new Set(Schedule.occurrencesBetween(filteredEvents(), start, end).map((o) => o.date));
@@ -328,7 +343,7 @@
         <button type="button" class="icon-btn small" data-action="mini-nav" data-dir="-1" aria-label="Mês anterior">‹</button>
         <button type="button" class="icon-btn small" data-action="mini-nav" data-dir="1" aria-label="Próximo mês">›</button>
       </div>
-      <div class="mini-grid">${['S', 'T', 'Q', 'Q', 'S', 'S', 'D'].map((l) => `<span class="mini-wd">${l}</span>`).join('')}${cells}</div>`;
+      <div class="mini-grid">${weekdays().map(([, l]) => `<span class="mini-wd">${l[0]}</span>`).join('')}${cells}</div>`;
   }
 
   function renderProjectsBox() {
@@ -517,9 +532,7 @@
   // ----- Semana -----
 
   function renderWeek() {
-    const start = U.weekStart(state.date);
-    const n = settings().showWeekend ? 7 : 5;
-    return renderGrid(Array.from({ length: n }, (_, i) => U.addDays(start, i)));
+    return renderGrid(weekDays(state.date));
   }
 
   // Grade de horários para um ou mais dias (Dia = 1 coluna, Semana = 5 ou 7).
@@ -566,10 +579,10 @@
 
   function renderMonth() {
     const first = U.addMonths(state.date, 0);
-    const gridStart = U.weekStart(first);
+    const gridStart = weekStartOf(first);
     const firstDate = U.fromKey(first);
     const daysInMonth = new Date(firstDate.getFullYear(), firstDate.getMonth() + 1, 0).getDate();
-    const offset = (firstDate.getDay() + 6) % 7;
+    const offset = (firstDate.getDay() - firstDay() + 7) % 7;
     const weeks = Math.ceil((offset + daysInMonth) / 7);
     const last = U.addDays(gridStart, weeks * 7 - 1);
     const today = U.todayKey();
@@ -578,7 +591,7 @@
     const tasks = filteredTasks().filter((t) => t.dueDate && t.dueDate >= gridStart && t.dueDate <= last);
     const month = firstDate.getMonth();
 
-    const headers = WEEKDAYS.map(([, l]) => `<div class="month-wd">${l}</div>`).join('');
+    const headers = weekdays().map(([, l]) => `<div class="month-wd">${l}</div>`).join('');
     let cells = '';
     for (let i = 0; i < weeks * 7; i++) {
       const d = U.addDays(gridStart, i);
@@ -851,9 +864,9 @@
   function repeatText(ev) {
     const r = ev.repeat || {};
     if (r.type === 'daily') return 'Todo dia';
-    if (r.type === 'monthly') return 'Todo mês';
+    if (r.type === 'monthly') return `Todo mês, ${monthlyLabel(ev)}`;
     if (r.type === 'weekly') {
-      const names = WEEKDAYS.filter(([v]) => (r.days || []).includes(v)).map(([, l]) => l.toLowerCase());
+      const names = weekdays().filter(([v]) => (r.days || []).includes(v)).map(([, l]) => l.toLowerCase());
       return `Toda semana${names.length ? ` (${names.join(', ')})` : ''}`;
     }
     return '';
@@ -1566,10 +1579,17 @@
     fillReminderSelect(form.reminder, values.reminder);
     form.repeat.value = values.repeat?.type || 'none';
     form.until.value = values.repeat?.until || '';
+    const rule = values.repeat?.type === 'monthly' && values.repeat.monthlyBy !== 'day' && values.repeat.monthlyBy
+      ? Schedule.monthlyRule(values) : null;
+    form.monthlyBy.value = rule ? 'weekday' : 'day';
+    form.dataset.nth = rule ? rule.nth : '';
+    form.dataset.weekday = rule ? rule.weekday : '';
+    form.monthlyNth.innerHTML = ''; // limpa a escolha de um compromisso aberto antes
+    form.monthlyWeekday.innerHTML = '';
     form.notes.value = values.notes || '';
 
     const days = values.repeat?.days?.length ? values.repeat.days : [U.fromKey(values.date).getDay()];
-    $('#weekdaysList').innerHTML = WEEKDAYS.map(([v, l]) =>
+    $('#weekdaysList').innerHTML = weekdays().map(([v, l]) =>
       `<label class="day-toggle"><input type="checkbox" name="days" value="${v}" ${days.includes(v) ? 'checked' : ''}><span>${l}</span></label>`).join('');
 
     const occDate = ev ? (ev.repeat?.type !== 'none' && date ? date : ev.date) : null;
@@ -1598,10 +1618,63 @@
     return U.fromMin(Math.min(min, 23 * 60));
   }
 
+  // ----- Repetição mensal -----
+
+  const WEEKDAY_FULL = ['domingo', 'segunda-feira', 'terça-feira', 'quarta-feira', 'quinta-feira', 'sexta-feira', 'sábado'];
+  const isMasc = (weekday) => weekday === 0 || weekday === 6; // domingo e sábado
+  const nthLabel = (nth, weekday) =>
+    nth === -1 ? (isMasc(weekday) ? 'último' : 'última') : `${nth}${isMasc(weekday) ? 'º' : 'ª'}`;
+
+  // Texto da regra mensal de um compromisso: "no dia 2" ou "toda 1ª segunda-feira do mês".
+  function monthlyLabel(ev) {
+    const r = ev.repeat || {};
+    if (!r.monthlyBy || r.monthlyBy === 'day') return `no dia ${U.fromKey(ev.date).getDate()}`;
+    const { weekday, nth } = Schedule.monthlyRule(ev);
+    return `${isMasc(weekday) ? 'todo' : 'toda'} ${nthLabel(nth, weekday)} ${WEEKDAY_FULL[weekday]} do mês`;
+  }
+
+  // Monta "Qual" (1ª…4ª, última) e "Dia da semana" (todos os dias), mantendo a escolha atual.
+  function fillMonthlyOptions(form) {
+    const date = form.date.value;
+    if (!date) return;
+    const pos = Schedule.weekdayPosition(date);
+    form.monthlyBy.options[0].textContent = `No dia ${U.fromKey(date).getDate()} de cada mês`;
+    const byWeekday = form.monthlyBy.value === 'weekday';
+    $('#monthlyWeekdayRow').hidden = !byWeekday;
+
+    const weekday = form.monthlyWeekday.value !== '' ? Number(form.monthlyWeekday.value)
+      : form.dataset.weekday !== '' ? Number(form.dataset.weekday) : pos.weekday;
+    const nth = form.monthlyNth.value !== '' ? Number(form.monthlyNth.value)
+      : form.dataset.nth !== '' ? Number(form.dataset.nth) : (pos.n <= 4 ? pos.n : -1);
+    form.monthlyWeekday.innerHTML = weekdays()
+      .map(([v]) => `<option value="${v}">${WEEKDAY_FULL[v].replace(/^./, (c) => c.toUpperCase())}</option>`).join('');
+    form.monthlyWeekday.value = String(weekday);
+    form.monthlyNth.innerHTML = [1, 2, 3, 4, -1]
+      .map((n) => `<option value="${n}">${nthLabel(n, weekday).replace(/^./, (c) => c.toUpperCase())}</option>`).join('');
+    form.monthlyNth.value = String(nth);
+
+    // Prévia das próximas datas, para conferir a regra antes de salvar.
+    const preview = { id: '_', date, repeat: monthlyRepeat(form) };
+    const next = Schedule.occurrencesBetween([preview], date, U.addDays(date, 400)).slice(0, 3).map((o) => U.dayMonth(o.date));
+    $('#monthlyPreview').textContent = next.length ? `Próximas datas: ${next.join(', ')}…` : '';
+  }
+
+  function monthlyRepeat(form) {
+    if (form.monthlyBy.value !== 'weekday') return { type: 'monthly', monthlyBy: 'day' };
+    return {
+      type: 'monthly',
+      monthlyBy: 'weekday',
+      nth: Number(form.monthlyNth.value),
+      weekday: Number(form.monthlyWeekday.value),
+    };
+  }
+
   function updateEventFormState() {
     const form = $('#eventForm');
     const repeat = form.repeat.value;
     $('#weekdaysField').hidden = repeat !== 'weekly';
+    $('#monthlyField').hidden = repeat !== 'monthly';
+    if (repeat === 'monthly') fillMonthlyOptions(form);
     $('#untilField').classList.toggle('disabled', repeat === 'none');
     form.until.disabled = repeat === 'none';
     $('#eventDateLabel').textContent = repeat === 'none' ? 'Data' : 'Começa em';
@@ -1641,6 +1714,7 @@
         type: repeatType,
         days: repeatType === 'weekly' ? days : [],
         until: repeatType !== 'none' && form.until.value ? form.until.value : null,
+        ...(repeatType === 'monthly' ? (({ type, ...rest }) => rest)(monthlyRepeat(form)) : {}),
       },
       notes: form.notes.value.trim(),
       completed: eventCompletion(form, repeatType),
@@ -1881,6 +1955,7 @@
     form.dayEnd.value = s.dayEnd;
     fillReminderSelect(form.defaultReminder, s.defaultReminder);
     form.showWeekend.checked = !!s.showWeekend;
+    form.weekStart.value = String(s.weekStart ?? 0);
     draftProjects = data().projects.map((p) => ({ ...p }));
     renderProjectList();
     updateNotifyUI();
@@ -1942,6 +2017,7 @@
       dayEnd,
       defaultReminder: parseReminder(form.defaultReminder.value),
       showWeekend: form.showWeekend.checked,
+      weekStart: Number(form.weekStart.value),
     });
     for (const pid of [...state.hidden]) if (pid && !keep.has(pid)) state.hidden.delete(pid);
     saveHidden();
@@ -2294,6 +2370,10 @@
     const eventForm = $('#eventForm');
     eventForm.addEventListener('submit', submitEvent);
     eventForm.repeat.addEventListener('change', updateEventFormState);
+    eventForm.date.addEventListener('change', updateEventFormState);
+    for (const name of ['monthlyBy', 'monthlyNth', 'monthlyWeekday']) {
+      eventForm[name].addEventListener('change', updateEventFormState);
+    }
     eventForm.location.addEventListener('input', updateEventFormState);
     eventForm.start.addEventListener('change', () => {
       // Mantém a duração ao mudar o início.

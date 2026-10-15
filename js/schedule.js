@@ -19,11 +19,39 @@ const Schedule = (() => {
         const days = repeat.days && repeat.days.length ? repeat.days : [Utils.fromKey(ev.date).getDay()];
         return days.includes(Utils.fromKey(key).getDay());
       }
-      case 'monthly':
-        return Utils.fromKey(key).getDate() === Utils.fromKey(ev.date).getDate();
+      case 'monthly': {
+        const d = Utils.fromKey(key);
+        const first = Utils.fromKey(ev.date);
+        if (repeat.monthlyBy === 'weekday' || repeat.monthlyBy === 'lastWeekday') {
+          const { weekday, nth } = monthlyRule(ev);
+          if (d.getDay() !== weekday) return false;
+          const pos = weekdayPosition(key);
+          return nth === -1 ? pos.isLast : pos.n === nth;
+        }
+        return d.getDate() === first.getDate();
+      }
       default:
         return key === ev.date;
     }
+  }
+
+  // Posição do dia da semana no mês: 2/11/2026 é a 1ª segunda-feira (n = 1);
+  // isLast indica que é a última daquele dia da semana no mês.
+  function weekdayPosition(key) {
+    const d = Utils.fromKey(key);
+    const daysInMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+    return { weekday: d.getDay(), n: Math.ceil(d.getDate() / 7), isLast: d.getDate() + 7 > daysInMonth };
+  }
+
+  // Regra "num dia da semana": qual dia (0 = domingo) e qual ocorrência no mês (1–4, ou -1 = última).
+  // Compromissos antigos sem esses campos usam a posição da data de início.
+  function monthlyRule(ev) {
+    const repeat = ev.repeat || {};
+    const start = weekdayPosition(ev.date);
+    const weekday = Number.isInteger(repeat.weekday) ? repeat.weekday : start.weekday;
+    let nth = repeat.monthlyBy === 'lastWeekday' ? -1 : Number.isInteger(repeat.nth) ? repeat.nth : start.n;
+    if (nth > 4) nth = -1;
+    return { weekday, nth };
   }
 
   // Todas as ocorrências entre duas datas (inclusive), em ordem de data e hora.
@@ -144,7 +172,7 @@ const Schedule = (() => {
     return out.map(({ occ, col, cols }) => ({ occ, col, cols }));
   }
 
-  return { occursOn, occurrencesBetween, isMissed, missedOccurrences, taskStatus, sortTasks, itemProgress, parseItems, layout };
+  return { occursOn, weekdayPosition, monthlyRule, occurrencesBetween, isMissed, missedOccurrences, taskStatus, sortTasks, itemProgress, parseItems, layout };
 })();
 
 if (typeof module !== 'undefined') module.exports = Schedule;

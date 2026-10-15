@@ -24,10 +24,10 @@ const U = (() => {
     return toKey(new Date(d.getFullYear(), d.getMonth() + n, 1));
   };
 
-  // Segunda-feira da semana que contém a data.
-  const weekStart = (key) => {
+  // Primeiro dia da semana que contém a data (first: 0 = domingo, 1 = segunda).
+  const weekStart = (key, first = 1) => {
     const d = fromKey(key);
-    d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+    d.setDate(d.getDate() - ((d.getDay() - first + 7) % 7));
     return toKey(d);
   };
 

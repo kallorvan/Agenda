@@ -8,7 +8,8 @@ const Store = (() => {
       dayStart: 7,
       dayEnd: 20,
       defaultReminder: 15,
-      showWeekend: false,
+      showWeekend: true,
+      weekStart: 0, // 0 = domingo, 1 = segunda
       lastBackup: null,
     },
     projects: [],
@@ -24,9 +25,12 @@ const Store = (() => {
     }
     const base = defaults();
     const list = (v) => (Array.isArray(v) ? v.filter((x) => x && typeof x === 'object' && x.id) : []);
+    const settings = { ...base.settings, ...(raw.settings || {}) };
+    // Dados de antes da opção "a semana começa no": passam a ver a semana completa, a partir do domingo.
+    if (raw.settings && raw.settings.weekStart === undefined) settings.showWeekend = true;
     return {
       version: 1,
-      settings: { ...base.settings, ...(raw.settings || {}) },
+      settings,
       projects: list(raw.projects),
       events: list(raw.events),
       tasks: list(raw.tasks),
