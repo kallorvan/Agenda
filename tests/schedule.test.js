@@ -130,3 +130,16 @@ test('mensal sem forma escolhida continua no mesmo dia do mês', () => {
   const dates = S.occurrencesBetween([e], '2026-11-01', '2026-12-31').map((o) => o.date);
   assert.deepEqual(dates, ['2026-11-02', '2026-12-02']);
 });
+
+test('mensal num dia da semana escolhido, diferente do dia de início', () => {
+  // começa em 01/11 (domingo), regra: toda 2ª quarta-feira
+  const e = ev({ date: '2026-11-01', repeat: { type: 'monthly', monthlyBy: 'weekday', nth: 2, weekday: 3 } });
+  const dates = S.occurrencesBetween([e], '2026-11-01', '2027-01-31').map((o) => o.date);
+  assert.deepEqual(dates, ['2026-11-11', '2026-12-09', '2027-01-13']);
+});
+
+test('mensal: última segunda-feira escolhida', () => {
+  const e = ev({ date: '2026-11-01', repeat: { type: 'monthly', monthlyBy: 'weekday', nth: -1, weekday: 1 } });
+  const dates = S.occurrencesBetween([e], '2026-11-01', '2027-01-31').map((o) => o.date);
+  assert.deepEqual(dates, ['2026-11-30', '2026-12-28', '2027-01-25']);
+});

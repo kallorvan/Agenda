@@ -864,7 +864,7 @@
   function repeatText(ev) {
     const r = ev.repeat || {};
     if (r.type === 'daily') return 'Todo dia';
-    if (r.type === 'monthly') return `Todo mês, ${monthlyLabel(r.monthlyBy || 'day', ev.date)}`;
+    if (r.type === 'monthly') return `Todo mês, ${monthlyLabel(ev)}`;
     if (r.type === 'weekly') {
       const names = weekdays().filter(([v]) => (r.days || []).includes(v)).map(([, l]) => l.toLowerCase());
       return `Toda semana${names.length ? ` (${names.join(', ')})` : ''}`;
@@ -1579,8 +1579,13 @@
     fillReminderSelect(form.reminder, values.reminder);
     form.repeat.value = values.repeat?.type || 'none';
     form.until.value = values.repeat?.until || '';
-    form.dataset.monthlyBy = values.repeat?.monthlyBy || 'day';
-    form.monthlyBy.innerHTML = '';
+    const rule = values.repeat?.type === 'monthly' && values.repeat.monthlyBy !== 'day' && values.repeat.monthlyBy
+      ? Schedule.monthlyRule(values) : null;
+    form.monthlyBy.value = rule ? 'weekday' : 'day';
+    form.dataset.nth = rule ? rule.nth : '';
+    form.dataset.weekday = rule ? rule.weekday : '';
+    form.monthlyNth.innerHTML = ''; // limpa a escolha de um compromisso aberto antes
+    form.monthlyWeekday.innerHTML = '';
     form.notes.value = values.notes || '';
 
     const days = values.repeat?.days?.length ? values.repeat.days : [U.fromKey(values.date).getDay()];
@@ -1613,28 +1618,55 @@
     return U.fromMin(Math.min(min, 23 * 60));
   }
 
-  // Texto de cada forma de repetição mensal, a partir da data do compromisso.
+  // ----- Repetição mensal -----
+
   const WEEKDAY_FULL = ['domingo', 'segunda-feira', 'terça-feira', 'quarta-feira', 'quinta-feira', 'sexta-feira', 'sábado'];
-  function monthlyLabel(by, dateKey) {
-    const pos = Schedule.weekdayPosition(dateKey);
-    const masc = pos.weekday === 0 || pos.weekday === 6; // domingo e sábado
-    const name = WEEKDAY_FULL[pos.weekday];
-    if (by === 'weekday') return `${masc ? 'todo' : 'toda'} ${pos.n}${masc ? 'º' : 'ª'} ${name} do mês`;
-    if (by === 'lastWeekday') return `${masc ? 'todo último' : 'toda última'} ${name} do mês`;
-    return `no dia ${U.fromKey(dateKey).getDate()}`;
+  const isMasc = (weekday) => weekday === 0 || weekday === 6; // domingo e sábado
+  const nthLabel = (nth, weekday) =>
+    nth === -1 ? (isMasc(weekday) ? 'último' : 'última') : `${nth}${isMasc(weekday) ? 'º' : 'ª'}`;
+
+  // Texto da regra mensal de um compromisso: "no dia 2" ou "toda 1ª segunda-feira do mês".
+  function monthlyLabel(ev) {
+    const r = ev.repeat || {};
+    if (!r.monthlyBy || r.monthlyBy === 'day') return `no dia ${U.fromKey(ev.date).getDate()}`;
+    const { weekday, nth } = Schedule.monthlyRule(ev);
+    return `${isMasc(weekday) ? 'todo' : 'toda'} ${nthLabel(nth, weekday)} ${WEEKDAY_FULL[weekday]} do mês`;
   }
 
-  // Opções válidas para a data: "5ª segunda-feira" não existe em todo mês, então não é oferecida.
-  function fillMonthlyOptions(form, wanted) {
-    if (!form.date.value) return;
-    const pos = Schedule.weekdayPosition(form.date.value);
-    const options = ['day'];
-    if (pos.n <= 4) options.push('weekday');
-    if (pos.isLast) options.push('lastWeekday');
-    const value = options.includes(wanted) ? wanted : 'day';
-    const label = (by) => monthlyLabel(by, form.date.value).replace(/^./, (c) => c.toUpperCase());
-    form.monthlyBy.innerHTML = options.map((by) => `<option value="${by}">${esc(label(by))}</option>`).join('');
-    form.monthlyBy.value = value;
+  // Monta "Qual" (1ª…4ª, última) e "Dia da semana" (todos os dias), mantendo a escolha atual.
+  function fillMonthlyOptions(form) {
+    const date = form.date.value;
+    if (!date) return;
+    const pos = Schedule.weekdayPosition(date);
+    form.monthlyBy.options[0].textContent = `No dia ${U.fromKey(date).getDate()} de cada mês`;
+    const byWeekday = form.monthlyBy.value === 'weekday';
+    $('#monthlyWeekdayRow').hidden = !byWeekday;
+
+    const weekday = form.monthlyWeekday.value !== '' ? Number(form.monthlyWeekday.value)
+      : form.dataset.weekday !== '' ? Number(form.dataset.weekday) : pos.weekday;
+    const nth = form.monthlyNth.value !== '' ? Number(form.monthlyNth.value)
+      : form.dataset.nth !== '' ? Number(form.dataset.nth) : (pos.n <= 4 ? pos.n : -1);
+    form.monthlyWeekday.innerHTML = weekdays()
+      .map(([v]) => `<option value="${v}">${WEEKDAY_FULL[v].replace(/^./, (c) => c.toUpperCase())}</option>`).join('');
+    form.monthlyWeekday.value = String(weekday);
+    form.monthlyNth.innerHTML = [1, 2, 3, 4, -1]
+      .map((n) => `<option value="${n}">${nthLabel(n, weekday).replace(/^./, (c) => c.toUpperCase())}</option>`).join('');
+    form.monthlyNth.value = String(nth);
+
+    // Prévia das próximas datas, para conferir a regra antes de salvar.
+    const preview = { id: '_', date, repeat: monthlyRepeat(form) };
+    const next = Schedule.occurrencesBetween([preview], date, U.addDays(date, 400)).slice(0, 3).map((o) => U.dayMonth(o.date));
+    $('#monthlyPreview').textContent = next.length ? `Próximas datas: ${next.join(', ')}…` : '';
+  }
+
+  function monthlyRepeat(form) {
+    if (form.monthlyBy.value !== 'weekday') return { type: 'monthly', monthlyBy: 'day' };
+    return {
+      type: 'monthly',
+      monthlyBy: 'weekday',
+      nth: Number(form.monthlyNth.value),
+      weekday: Number(form.monthlyWeekday.value),
+    };
   }
 
   function updateEventFormState() {
@@ -1642,7 +1674,7 @@
     const repeat = form.repeat.value;
     $('#weekdaysField').hidden = repeat !== 'weekly';
     $('#monthlyField').hidden = repeat !== 'monthly';
-    if (repeat === 'monthly') fillMonthlyOptions(form, form.monthlyBy.value || form.dataset.monthlyBy);
+    if (repeat === 'monthly') fillMonthlyOptions(form);
     $('#untilField').classList.toggle('disabled', repeat === 'none');
     form.until.disabled = repeat === 'none';
     $('#eventDateLabel').textContent = repeat === 'none' ? 'Data' : 'Começa em';
@@ -1682,7 +1714,7 @@
         type: repeatType,
         days: repeatType === 'weekly' ? days : [],
         until: repeatType !== 'none' && form.until.value ? form.until.value : null,
-        ...(repeatType === 'monthly' ? { monthlyBy: form.monthlyBy.value || 'day' } : {}),
+        ...(repeatType === 'monthly' ? (({ type, ...rest }) => rest)(monthlyRepeat(form)) : {}),
       },
       notes: form.notes.value.trim(),
       completed: eventCompletion(form, repeatType),
@@ -2339,6 +2371,9 @@
     eventForm.addEventListener('submit', submitEvent);
     eventForm.repeat.addEventListener('change', updateEventFormState);
     eventForm.date.addEventListener('change', updateEventFormState);
+    for (const name of ['monthlyBy', 'monthlyNth', 'monthlyWeekday']) {
+      eventForm[name].addEventListener('change', updateEventFormState);
+    }
     eventForm.location.addEventListener('input', updateEventFormState);
     eventForm.start.addEventListener('change', () => {
       // Mantém a duração ao mudar o início.

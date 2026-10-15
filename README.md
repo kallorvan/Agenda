@@ -18,8 +18,8 @@ Funciona direto no navegador, sem instalar nada e sem login.
     (digite o título e Enter; "Mais opções" abre a janela completa).
 - **Compromissos**: título, data, horário, local ou link da reunião, projeto, observações,
   lembrete (padrão: 15 minutos antes) e repetição (diária, semanal nos dias escolhidos ou mensal —
-  no mesmo dia do mês, ex.: dia 2, ou no mesmo dia da semana, ex.: toda 1ª segunda-feira ou
-  toda última sexta-feira do mês).
+  no mesmo dia do mês, ex.: dia 2, ou num dia da semana à escolha: 1ª, 2ª, 3ª, 4ª ou última
+  segunda-feira, terça-feira… do mês; a janela mostra as próximas datas para conferir).
   Marque um compromisso como **concluído** pelo círculo no canto do bloco (ou no painel de próximos),
   ou pela opção "Concluído" ao abri-lo. Em compromissos que se repetem, vale só para aquele dia.
   Concluídos ficam riscados, saem de "Próximos" e não geram lembrete.
