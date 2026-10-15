@@ -106,3 +106,9 @@ test('compromisso único cadastrado com data passada gera aviso', () => {
   const old = ev({ id: 'o', date: '2026-10-01', start: '09:00', end: '10:00', createdAt: now.getTime() });
   assert.equal(S.missedOccurrences([old], now, 7).length, 0);
 });
+
+test('semana pode começar no domingo', () => {
+  assert.equal(U.weekStart('2026-10-15', 0), '2026-10-11'); // quinta -> domingo anterior
+  assert.equal(U.weekStart('2026-10-11', 0), '2026-10-11'); // domingo -> ele mesmo
+  assert.equal(U.weekStart('2026-10-17', 0), '2026-10-11'); // sábado -> domingo anterior
+});

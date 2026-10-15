@@ -9,7 +9,21 @@
     ['15', '15 minutos antes'], ['30', '30 minutos antes'], ['60', '1 hora antes'],
     ['120', '2 horas antes'], ['1440', '1 dia antes'],
   ];
-  const WEEKDAYS = [[1, 'Seg'], [2, 'Ter'], [3, 'Qua'], [4, 'Qui'], [5, 'Sex'], [6, 'Sáb'], [0, 'Dom']];
+  const WEEKDAY_NAMES = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+  const firstDay = () => Number(Store.data.settings.weekStart ?? 0);
+  // Dias da semana na ordem escolhida nas configurações: [[0, 'Dom'], [1, 'Seg'], ...].
+  const weekdays = () => Array.from({ length: 7 }, (_, i) => {
+    const v = (firstDay() + i) % 7;
+    return [v, WEEKDAY_NAMES[v]];
+  });
+  const weekStartOf = (key) => U.weekStart(key, firstDay());
+
+  // Dias exibidos na semana que contém a data (sem sábado e domingo se estiverem ocultos).
+  function weekDays(key) {
+    const start = weekStartOf(key);
+    return Array.from({ length: 7 }, (_, i) => U.addDays(start, i))
+      .filter((d) => Store.data.settings.showWeekend || ![0, 6].includes(U.fromKey(d).getDay()));
+  }
   const NOTIFIED_KEY = 'agenda.notified';
   const MISSED_DAYS = 7; // até quantos dias atrás o quadro avisa compromissos não concluídos
   const NOTIFY_DISMISSED_KEY = 'agenda.notifyDismissed';
@@ -205,8 +219,9 @@
       return label.charAt(0).toUpperCase() + label.slice(1);
     }
     if (state.view === 'week') {
-      const start = U.weekStart(state.date);
-      const end = U.addDays(start, settings().showWeekend ? 6 : 4);
+      const days = weekDays(state.date);
+      const start = days[0];
+      const end = days[days.length - 1];
       return `${U.dayMonthShort(start)} – ${U.dayMonthShort(end)} de ${U.fromKey(end).getFullYear()}`;
     }
     const label = U.monthYear(state.date);
@@ -305,7 +320,7 @@
 
   function renderMiniCal() {
     const month = state.miniMonth || U.addMonths(state.date, 0);
-    const start = U.weekStart(month);
+    const start = weekStartOf(month);
     const end = U.addDays(start, 41);
     const today = U.todayKey();
     const busy = new Set(Schedule.occurrencesBetween(filteredEvents(), start, end).map((o) => o.date));
@@ -328,7 +343,7 @@
         <button type="button" class="icon-btn small" data-action="mini-nav" data-dir="-1" aria-label="Mês anterior">‹</button>
         <button type="button" class="icon-btn small" data-action="mini-nav" data-dir="1" aria-label="Próximo mês">›</button>
       </div>
-      <div class="mini-grid">${['S', 'T', 'Q', 'Q', 'S', 'S', 'D'].map((l) => `<span class="mini-wd">${l}</span>`).join('')}${cells}</div>`;
+      <div class="mini-grid">${weekdays().map(([, l]) => `<span class="mini-wd">${l[0]}</span>`).join('')}${cells}</div>`;
   }
 
   function renderProjectsBox() {
@@ -517,9 +532,7 @@
   // ----- Semana -----
 
   function renderWeek() {
-    const start = U.weekStart(state.date);
-    const n = settings().showWeekend ? 7 : 5;
-    return renderGrid(Array.from({ length: n }, (_, i) => U.addDays(start, i)));
+    return renderGrid(weekDays(state.date));
   }
 
   // Grade de horários para um ou mais dias (Dia = 1 coluna, Semana = 5 ou 7).
@@ -566,10 +579,10 @@
 
   function renderMonth() {
     const first = U.addMonths(state.date, 0);
-    const gridStart = U.weekStart(first);
+    const gridStart = weekStartOf(first);
     const firstDate = U.fromKey(first);
     const daysInMonth = new Date(firstDate.getFullYear(), firstDate.getMonth() + 1, 0).getDate();
-    const offset = (firstDate.getDay() + 6) % 7;
+    const offset = (firstDate.getDay() - firstDay() + 7) % 7;
     const weeks = Math.ceil((offset + daysInMonth) / 7);
     const last = U.addDays(gridStart, weeks * 7 - 1);
     const today = U.todayKey();
@@ -578,7 +591,7 @@
     const tasks = filteredTasks().filter((t) => t.dueDate && t.dueDate >= gridStart && t.dueDate <= last);
     const month = firstDate.getMonth();
 
-    const headers = WEEKDAYS.map(([, l]) => `<div class="month-wd">${l}</div>`).join('');
+    const headers = weekdays().map(([, l]) => `<div class="month-wd">${l}</div>`).join('');
     let cells = '';
     for (let i = 0; i < weeks * 7; i++) {
       const d = U.addDays(gridStart, i);
@@ -853,7 +866,7 @@
     if (r.type === 'daily') return 'Todo dia';
     if (r.type === 'monthly') return 'Todo mês';
     if (r.type === 'weekly') {
-      const names = WEEKDAYS.filter(([v]) => (r.days || []).includes(v)).map(([, l]) => l.toLowerCase());
+      const names = weekdays().filter(([v]) => (r.days || []).includes(v)).map(([, l]) => l.toLowerCase());
       return `Toda semana${names.length ? ` (${names.join(', ')})` : ''}`;
     }
     return '';
@@ -1569,7 +1582,7 @@
     form.notes.value = values.notes || '';
 
     const days = values.repeat?.days?.length ? values.repeat.days : [U.fromKey(values.date).getDay()];
-    $('#weekdaysList').innerHTML = WEEKDAYS.map(([v, l]) =>
+    $('#weekdaysList').innerHTML = weekdays().map(([v, l]) =>
       `<label class="day-toggle"><input type="checkbox" name="days" value="${v}" ${days.includes(v) ? 'checked' : ''}><span>${l}</span></label>`).join('');
 
     const occDate = ev ? (ev.repeat?.type !== 'none' && date ? date : ev.date) : null;
@@ -1881,6 +1894,7 @@
     form.dayEnd.value = s.dayEnd;
     fillReminderSelect(form.defaultReminder, s.defaultReminder);
     form.showWeekend.checked = !!s.showWeekend;
+    form.weekStart.value = String(s.weekStart ?? 0);
     draftProjects = data().projects.map((p) => ({ ...p }));
     renderProjectList();
     updateNotifyUI();
@@ -1942,6 +1956,7 @@
       dayEnd,
       defaultReminder: parseReminder(form.defaultReminder.value),
       showWeekend: form.showWeekend.checked,
+      weekStart: Number(form.weekStart.value),
     });
     for (const pid of [...state.hidden]) if (pid && !keep.has(pid)) state.hidden.delete(pid);
     saveHidden();
