@@ -112,3 +112,21 @@ test('semana pode começar no domingo', () => {
   assert.equal(U.weekStart('2026-10-11', 0), '2026-10-11'); // domingo -> ele mesmo
   assert.equal(U.weekStart('2026-10-17', 0), '2026-10-11'); // sábado -> domingo anterior
 });
+
+test('mensal no mesmo dia da semana (1ª segunda-feira)', () => {
+  const e = ev({ date: '2026-11-02', repeat: { type: 'monthly', monthlyBy: 'weekday' } }); // 1ª segunda
+  const dates = S.occurrencesBetween([e], '2026-11-01', '2027-02-28').map((o) => o.date);
+  assert.deepEqual(dates, ['2026-11-02', '2026-12-07', '2027-01-04', '2027-02-01']);
+});
+
+test('mensal na última sexta-feira do mês', () => {
+  const e = ev({ date: '2026-10-30', repeat: { type: 'monthly', monthlyBy: 'lastWeekday' } });
+  const dates = S.occurrencesBetween([e], '2026-10-01', '2027-01-31').map((o) => o.date);
+  assert.deepEqual(dates, ['2026-10-30', '2026-11-27', '2026-12-25', '2027-01-29']);
+});
+
+test('mensal sem forma escolhida continua no mesmo dia do mês', () => {
+  const e = ev({ date: '2026-11-02', repeat: { type: 'monthly' } });
+  const dates = S.occurrencesBetween([e], '2026-11-01', '2026-12-31').map((o) => o.date);
+  assert.deepEqual(dates, ['2026-11-02', '2026-12-02']);
+});

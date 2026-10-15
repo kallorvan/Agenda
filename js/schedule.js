@@ -19,11 +19,27 @@ const Schedule = (() => {
         const days = repeat.days && repeat.days.length ? repeat.days : [Utils.fromKey(ev.date).getDay()];
         return days.includes(Utils.fromKey(key).getDay());
       }
-      case 'monthly':
-        return Utils.fromKey(key).getDate() === Utils.fromKey(ev.date).getDate();
+      case 'monthly': {
+        const d = Utils.fromKey(key);
+        const first = Utils.fromKey(ev.date);
+        if (repeat.monthlyBy === 'weekday' || repeat.monthlyBy === 'lastWeekday') {
+          if (d.getDay() !== first.getDay()) return false;
+          const pos = weekdayPosition(key);
+          return repeat.monthlyBy === 'lastWeekday' ? pos.isLast : pos.n === weekdayPosition(ev.date).n;
+        }
+        return d.getDate() === first.getDate();
+      }
       default:
         return key === ev.date;
     }
+  }
+
+  // Posição do dia da semana no mês: 2/11/2026 é a 1ª segunda-feira (n = 1);
+  // isLast indica que é a última daquele dia da semana no mês.
+  function weekdayPosition(key) {
+    const d = Utils.fromKey(key);
+    const daysInMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+    return { weekday: d.getDay(), n: Math.ceil(d.getDate() / 7), isLast: d.getDate() + 7 > daysInMonth };
   }
 
   // Todas as ocorrências entre duas datas (inclusive), em ordem de data e hora.
@@ -144,7 +160,7 @@ const Schedule = (() => {
     return out.map(({ occ, col, cols }) => ({ occ, col, cols }));
   }
 
-  return { occursOn, occurrencesBetween, isMissed, missedOccurrences, taskStatus, sortTasks, itemProgress, parseItems, layout };
+  return { occursOn, weekdayPosition, occurrencesBetween, isMissed, missedOccurrences, taskStatus, sortTasks, itemProgress, parseItems, layout };
 })();
 
 if (typeof module !== 'undefined') module.exports = Schedule;

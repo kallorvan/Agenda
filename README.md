@@ -17,7 +17,9 @@ Funciona direto no navegador, sem instalar nada e sem login.
     clique duplo abre direto a janela de edição. Clique num horário vazio para o **cadastro rápido**
     (digite o título e Enter; "Mais opções" abre a janela completa).
 - **Compromissos**: título, data, horário, local ou link da reunião, projeto, observações,
-  lembrete (padrão: 15 minutos antes) e repetição (diária, semanal nos dias escolhidos ou mensal).
+  lembrete (padrão: 15 minutos antes) e repetição (diária, semanal nos dias escolhidos ou mensal —
+  no mesmo dia do mês, ex.: dia 2, ou no mesmo dia da semana, ex.: toda 1ª segunda-feira ou
+  toda última sexta-feira do mês).
   Marque um compromisso como **concluído** pelo círculo no canto do bloco (ou no painel de próximos),
   ou pela opção "Concluído" ao abri-lo. Em compromissos que se repetem, vale só para aquele dia.
   Concluídos ficam riscados, saem de "Próximos" e não geram lembrete.
