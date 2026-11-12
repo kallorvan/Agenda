@@ -11,6 +11,10 @@ Funciona direto no navegador, sem instalar nada e sem login.
     para mostrar ou esconder cada projeto (a escolha fica lembrada).
   - **Semana** (tela inicial, de domingo a sábado), **Dia** e **Mês**, com compromissos em blocos da cor
     do projeto. Nas Configurações dá para começar a semana na segunda e esconder sábado e domingo.
+  - No **Mês**, pare o mouse sobre um dia e ele se **aproxima**, mostrando todos os compromissos e
+    tarefas daquele dia; clique num item para abri-lo ou no número do dia para ir até ele.
+  - Visual no **design system Tóliman** (Grupo Dínamo): cores navy e rosa, fontes Barlow Condensed,
+    IBM Plex Sans e IBM Plex Mono, e a logo no topo (arquivos em `img/`).
   - **Painel direito** (botão ao lado da engrenagem recolhe): acontecendo agora, não concluídos,
     tarefas, atrasadas e próximos compromissos.
   - Clique num compromisso para abrir o **cartão rápido** (concluir, anotações, editar, excluir);

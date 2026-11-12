@@ -87,7 +87,7 @@
   }
 
   const NEW_PROJECT = '__novo__';
-  const PROJECT_COLORS = ['#2f6fed', '#0f9d76', '#d9480f', '#7c3aed', '#c2255c', '#0b7285', '#a16207', '#4b5563'];
+  const PROJECT_COLORS = ['#112346', '#E4536C', '#8E5AA8', '#0f8a6a', '#2B5FA8', '#C98A12', '#6B7A94', '#0b7285'];
   const nextProjectColor = (count = data().projects.length) => PROJECT_COLORS[count % PROJECT_COLORS.length];
 
   // allowNew acrescenta a opção "+ Novo projeto…", que abre o cadastro rápido.
@@ -184,6 +184,7 @@
   function render() {
     flushNoteSave();
     closePopover();
+    closeDayZoom(true);
     $$('.segmented [data-view]').forEach((b) => b.classList.toggle('active', b.dataset.view === state.view));
     $('#periodLabel').textContent = periodLabel();
     ['#prevBtn', '#nextBtn', '#todayBtn'].forEach((sel) => ($(sel).hidden = state.view === 'notes'));
@@ -611,6 +612,116 @@
     return `<section class="panel month-panel"><div class="month-grid">${headers}${cells}</div></section>`;
   }
 
+
+  // ----- Mês: aproximação do dia ao passar o mouse -----
+  // Depois de um instante sobre o dia, abre um cartão maior no lugar da célula,
+  // crescendo a partir dela, com todos os compromissos e tarefas daquele dia.
+
+  const ZOOM_DELAY = 280;
+  let zoomTimer = null;
+  let zoomCloseTimer = null;
+  let zoomDate = null;
+
+  function dayZoomHtml(date) {
+    const now = new Date();
+    const occs = Schedule.occurrencesBetween(filteredEvents(), date, date);
+    const dayTasks = filteredTasks().filter((t) => t.dueDate === date);
+    const tasks = Schedule.sortTasks(dayTasks.filter((t) => !t.done), now).concat(dayTasks.filter((t) => t.done));
+    const d = U.fromKey(date);
+    const evs = occs.map((o) => {
+      const missed = Schedule.isMissed(o, now);
+      const where = o.event.location ? `<small>${esc(o.event.location)}</small>` : '';
+      const status = o.done ? '<span class="dz-st ok">Concluído</span>' : missed ? '<span class="dz-st warn">Pendente</span>' : '';
+      return `<button type="button" class="dz-ev ${o.done ? 'done' : ''}" style="--c:${esc(projectColor(o.event.projectId))}" data-action="open-event" data-id="${esc(o.event.id)}" data-date="${date}">
+        <span class="dz-time">${o.start}<i>${o.end}</i></span><span class="dz-txt"><b>${esc(o.event.title)}</b>${where}</span>${status}</button>`;
+    }).join('');
+    const tks = tasks.map((t) => taskChip(t, now)).join('');
+    const total = occs.length + tasks.length;
+    const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+    const count = total ? `${plural(occs.length, 'compromisso')} · ${plural(tasks.length, 'tarefa')}` : 'Dia livre';
+    return `<button type="button" class="dz-head ${date === U.todayKey() ? 'is-today' : ''}" data-action="goto-day" data-date="${date}" title="Abrir o dia">
+        <span class="dz-num">${d.getDate()}</span>
+        <span class="dz-id"><u>${esc(U.weekdayShort(date))} · ${esc(U.monthYear(date))}</u><b>${count}</b></span>
+        <span class="dz-go" aria-hidden="true">›</span>
+      </button>
+      ${evs ? `<div class="dz-sec"><h4>Compromissos</h4>${evs}</div>` : ''}
+      ${tks ? `<div class="dz-sec"><h4>Tarefas</h4>${tks}</div>` : ''}
+      ${total ? '' : '<p class="dz-empty">Nada marcado para este dia.</p>'}
+      <div class="dz-foot"><button type="button" class="btn small" data-action="new-event" data-date="${date}">＋ Compromisso</button></div>`;
+  }
+
+  function openDayZoom(cell) {
+    const zoom = $('#dayZoom');
+    const date = cell.dataset.date;
+    if (!zoom || !date || !cell.isConnected || !$('#popover').hidden) return;
+    clearTimeout(zoomCloseTimer);
+    $$('.month-cell.zoomed').forEach((c) => c.classList.remove('zoomed'));
+    zoomDate = date;
+    zoom.innerHTML = dayZoomHtml(date);
+    zoom.classList.remove('open', 'closing');
+    zoom.hidden = false;
+    const r = cell.getBoundingClientRect();
+    const margin = 8;
+    const w = Math.min(Math.max(r.width * 2, 320), window.innerWidth - margin * 2);
+    zoom.style.width = `${Math.round(w)}px`;
+    zoom.style.maxHeight = `${Math.round(window.innerHeight - margin * 2)}px`;
+    const h = zoom.offsetHeight;
+    const left = Math.min(Math.max(margin, r.left + r.width / 2 - w / 2), window.innerWidth - w - margin);
+    const top = Math.max(margin, Math.min(r.top + r.height / 2 - Math.max(h, r.height) / 2, window.innerHeight - h - margin));
+    zoom.style.left = `${Math.round(left)}px`;
+    zoom.style.top = `${Math.round(top)}px`;
+    // Começa no tamanho e no lugar da célula e cresce até o cartão (efeito de aproximação).
+    zoom.style.setProperty('--from', `translate(${Math.round(r.left - left)}px, ${Math.round(r.top - top)}px) scale(${(r.width / w).toFixed(3)}, ${Math.min(1, r.height / h).toFixed(3)})`);
+    void zoom.offsetWidth;
+    zoom.classList.add('open');
+    cell.classList.add('zoomed');
+  }
+
+  function closeDayZoom(now = false) {
+    clearTimeout(zoomTimer);
+    clearTimeout(zoomCloseTimer);
+    const zoom = $('#dayZoom');
+    if (!zoom || zoom.hidden) return;
+    const done = () => {
+      zoom.hidden = true;
+      zoom.innerHTML = '';
+      zoom.classList.remove('open', 'closing');
+    };
+    zoomDate = null;
+    $$('.month-cell.zoomed').forEach((c) => c.classList.remove('zoomed'));
+    if (now || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return done();
+    zoom.classList.add('closing');
+    zoomCloseTimer = setTimeout(done, 140);
+  }
+
+  function bindDayZoom() {
+    const view = $('#view');
+    const zoom = $('#dayZoom');
+    zoom.addEventListener('click', onViewClick);
+    if (!window.matchMedia('(hover: hover)').matches) return;
+    view.addEventListener('mouseover', (e) => {
+      const cell = state.view === 'month' && e.target.closest('.month-cell');
+      if (!cell || cell.dataset.date === zoomDate) return;
+      clearTimeout(zoomTimer);
+      zoomTimer = setTimeout(() => openDayZoom(cell), ZOOM_DELAY);
+    });
+    view.addEventListener('mouseout', (e) => {
+      const cell = e.target.closest('.month-cell');
+      if (cell && !cell.contains(e.relatedTarget)) clearTimeout(zoomTimer);
+    });
+    zoom.addEventListener('mouseleave', (e) => {
+      if (e.relatedTarget && e.relatedTarget.closest && e.relatedTarget.closest('#popover')) return;
+      closeDayZoom();
+    });
+    // Abrir uma tarefa, o dia ou um novo compromisso fecha a aproximação.
+    zoom.addEventListener('click', (e) => {
+      const el = e.target.closest('[data-action]');
+      if (el && el.dataset.action !== 'open-event') setTimeout(() => closeDayZoom(true));
+    });
+    view.addEventListener('scroll', () => closeDayZoom(true), true);
+    window.addEventListener('resize', () => closeDayZoom(true));
+  }
+
   // ---------- Ações na tela ----------
 
   function goto(view, date) {
@@ -844,6 +955,8 @@
     pop.hidden = true;
     pop.innerHTML = '';
     $$('.event-block.selected').forEach((b) => b.classList.remove('selected'));
+    const zoom = $('#dayZoom');
+    if (zoom && !zoom.hidden && !zoom.matches(':hover')) closeDayZoom();
   }
 
   // Posiciona o cartão ao lado do elemento clicado (ou do ponto clicado), sem sair da tela.
@@ -2248,13 +2361,14 @@
     if (minute === lastMinute) return;
     lastMinute = minute;
     const typing = document.activeElement?.closest('#app input, #app select, #app textarea, #app [contenteditable]');
-    if (!typing && state.view !== 'notes' && $('#popover').hidden && $('#createMenu').hidden) render();
+    if (!typing && state.view !== 'notes' && $('#popover').hidden && $('#createMenu').hidden && $('#dayZoom').hidden) render();
     else updateTitle();
   }
 
   // ---------- Atalhos de teclado ----------
 
   function onKey(e) {
+    if (e.key === 'Escape' && !$('#dayZoom').hidden && $('#popover').hidden) { closeDayZoom(); return; }
     if (e.key === 'Escape' && (!$('#popover').hidden || !$('#createMenu').hidden)) {
       closePopover();
       toggleCreateMenu(false);
@@ -2316,6 +2430,7 @@
       if (!$('#createMenu').hidden && !e.target.closest('.create-wrap')) toggleCreateMenu(false);
     });
     window.addEventListener('resize', closePopover);
+    bindDayZoom();
 
     const app = $('#app');
     app.addEventListener('click', onViewClick);
